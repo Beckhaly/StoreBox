@@ -1,0 +1,44 @@
+{
+  "name": "@storebox/api",
+  "version": "2.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:setup": "psql $DATABASE_URL -f migrations/001_schema.sql && psql $DATABASE_URL -f migrations/002_seed.sql && psql $DATABASE_URL -f migrations/003_auth.sql && psql $DATABASE_URL -f migrations/004_notifications.sql && psql $DATABASE_URL -f migrations/015_stored_procedures.sql",
+    "db:migrate": "psql $DATABASE_URL -f migrations/001_schema.sql && psql $DATABASE_URL -f migrations/003_auth.sql && psql $DATABASE_URL -f migrations/004_notifications.sql && psql $DATABASE_URL -f migrations/015_stored_procedures.sql",
+    "db:seed": "psql $DATABASE_URL -f migrations/002_seed.sql",
+    "gen-secret": "node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\"",
+    "test":       "vitest run --config vitest.unit.config.ts && vitest run",
+    "test:unit":  "vitest run --config vitest.unit.config.ts",
+    "test:int":   "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@storebox/shared": "*",
+    "axios": "^1.7.2",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pdfkit": "^0.14.0",
+    "pg": "^8.11.5",
+    "twilio": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.6",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.15.7",
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.4"
+  }
+}
