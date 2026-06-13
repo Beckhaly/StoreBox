@@ -308,17 +308,14 @@ router.post('/vente-rapide', requirePerm('ventes'), wrap(async (req, res) => {
        notes || null, magasin_id, session?.id ?? null]
     );
 
-    // Lignes + mouvements stock
+    // Lignes + mouvements stock (avec consommation FIFO des lots si applicable)
     for (const l of lignes) {
       const total_ligne = Math.round(l.quantite * l.prix_unitaire * (1 - (l.remise_pct ?? 0) / 100));
-      await cl.query(
-        `INSERT INTO ventes_lignes (vente_id,produit_id,quantite,prix_unitaire,remise_pct,total_ligne)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [vente.id, l.produit_id, l.quantite, l.prix_unitaire, l.remise_pct ?? 0, total_ligne]
-      );
 
+      // Stock du magasin (verrouillé) + indicateur de gestion par lot
       const { rows: [stk] } = await cl.query(
-        `SELECT s.quantite, p.designation FROM stocks s JOIN produits p ON p.id=s.produit_id
+        `SELECT s.quantite, p.designation, p.gere_lot
+         FROM stocks s JOIN produits p ON p.id=s.produit_id
          WHERE s.produit_id=$1 AND s.magasin_id=$2 FOR UPDATE`,
         [l.produit_id, magasin_id]
       );
@@ -330,15 +327,65 @@ router.post('/vente-rapide', requirePerm('ventes'), wrap(async (req, res) => {
         { statusCode: 400 }
       );
 
+      // Plan de consommation FIFO (lot le plus proche de péremption en premier)
+      const consos: { lot_id: number; qte: number }[] = [];
+      if (stk.gere_lot) {
+        const { rows: lots } = await cl.query(
+          `SELECT id, quantite FROM lots
+           WHERE produit_id=$1 AND magasin_id=$2 AND quantite > 0
+           ORDER BY date_peremption ASC NULLS LAST, date_entree ASC, id ASC
+           FOR UPDATE`,
+          [l.produit_id, magasin_id]
+        );
+        let reste = qteVendue;
+        for (const lot of lots) {
+          if (reste <= 0) break;
+          const prise = Math.min(Number(lot.quantite), reste);
+          consos.push({ lot_id: lot.id, qte: prise });
+          reste -= prise;
+        }
+      }
+      const primaryLot = consos.length ? consos[0].lot_id : null;
+
+      // Ligne de vente (lot_id = premier lot consommé pour la traçabilité)
+      await cl.query(
+        `INSERT INTO ventes_lignes (vente_id,produit_id,quantite,prix_unitaire,remise_pct,total_ligne,lot_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [vente.id, l.produit_id, qteVendue, l.prix_unitaire, l.remise_pct ?? 0, total_ligne, primaryLot]
+      );
+
+      // Décrément du stock global du magasin
       await cl.query(
         `UPDATE stocks SET quantite=quantite-$1 WHERE produit_id=$2 AND magasin_id=$3`,
         [qteVendue, l.produit_id, magasin_id]
       );
-      await cl.query(
-        `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id)
-         VALUES ($1,'sortie',$2,$3,$4,'Vente POS',$5,$6)`,
-        [l.produit_id, qteVendue, stockDispo, stockDispo - qteVendue, numero, magasin_id]
-      );
+
+      // Mouvements de stock : un par lot consommé (sinon un mouvement global)
+      let running = stockDispo;
+      if (consos.length) {
+        for (const c of consos) {
+          await cl.query(
+            `UPDATE lots SET quantite=quantite-$1 WHERE id=$2`,
+            [c.qte, c.lot_id]
+          );
+          await cl.query(
+            `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id,lot_id)
+             VALUES ($1,'sortie',$2,$3,$4,'Vente POS (lot)',$5,$6,$7)`,
+            [l.produit_id, c.qte, running, running - c.qte, numero, magasin_id, c.lot_id]
+          );
+          running -= c.qte;
+        }
+      }
+      // Reliquat non couvert par les lots (stock hérité sans lot) ou produit sans lot
+      const couvert = consos.reduce((s, c) => s + c.qte, 0);
+      if (couvert < qteVendue) {
+        const reliquat = qteVendue - couvert;
+        await cl.query(
+          `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id)
+           VALUES ($1,'sortie',$2,$3,$4,'Vente POS',$5,$6)`,
+          [l.produit_id, reliquat, running, running - reliquat, numero, magasin_id]
+        );
+      }
     }
 
     // Règlements
