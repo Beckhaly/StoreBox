@@ -1,0 +1,31 @@
+# Dépendances et artefacts (réinstallés/rebuild dans l'image)
+**/node_modules
+**/dist
+apps/web/dist
+packages/shared/dist
+
+# Secrets et env locaux
+**/.env
+**/.env.local
+!**/.env.example
+
+# Git & CI
+.git
+.gitignore
+.github
+
+# Caches & logs
+**/.vite
+**/coverage
+**/*.log
+logs
+
+# Outils / IDE / OS
+.claude
+.vscode
+.idea
+.DS_Store
+
+# Docs et scripts non nécessaires au build
+*.md
+infra/nginx
