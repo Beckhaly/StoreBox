@@ -40,6 +40,7 @@ const MIGRATIONS = [
   '020_pos_client.sql',
   '021_produits_universels.sql',
   '022_seed_fruits_legumes.sql',
+  '023_bc_reception.sql',
 ];
 
 const DATABASE_URL = process.env.DATABASE_URL;

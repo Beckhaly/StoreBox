@@ -456,7 +456,7 @@ rapportsRouter.get('/commandes', wrap(async (req, res) => {
     db.query(`
       SELECT bc.id, bc.numero num_bl, f.raison_sociale client, bc.date_commande date, bc.total_ttc total, bc.statut
       FROM bons_commande bc JOIN fournisseurs f ON f.id=bc.fournisseur_id
-      WHERE bc.statut IN('en_cours','receptionne') AND bc.date_commande>=CURRENT_DATE-30
+      WHERE bc.statut IN('envoye','confirme','receptionne_partiel','receptionne') AND bc.date_commande>=CURRENT_DATE-30
       ORDER BY bc.date_commande DESC LIMIT 30
     `),
     db.query(`
@@ -467,8 +467,8 @@ rapportsRouter.get('/commandes', wrap(async (req, res) => {
     `),
     db.query(`
       SELECT 
-        (SELECT COUNT(*) FROM bons_commande WHERE statut IN('en_cours','receptionne')) nb_en_cours,
-        (SELECT COALESCE(SUM(total_ttc),0) FROM bons_commande WHERE statut IN('en_cours','receptionne')) total_en_cours,
+        (SELECT COUNT(*) FROM bons_commande WHERE statut IN('envoye','confirme','receptionne_partiel')) nb_en_cours,
+        (SELECT COALESCE(SUM(total_ttc),0) FROM bons_commande WHERE statut IN('envoye','confirme','receptionne_partiel')) total_en_cours,
         (SELECT COUNT(*) FROM devis WHERE statut IN('brouillon','valide')) nb_devis
     `),
   ]);
@@ -945,38 +945,120 @@ bonCommandeRouter.put('/:id/statut', requirePerm('ventes'), wrap(async (req, res
   const { rows } = await db.query(`UPDATE bons_commande SET statut=$1 WHERE id=$2 RETURNING *`,[statut,req.params.id]);
   ok(res,rows[0]);
 }));
-bonCommandeRouter.post('/:id/receptionner', requirePerm('ventes'), wrap(async (req, res) => {
+// Réception d'un BC → crée/complète l'achat fournisseur lié.
+// Supporte la réception PARTIELLE (body.lignes) et la création de lots
+// pour les produits gérés par lot. Idempotent : refuse si déjà reçu.
+//
+// body optionnel : { lignes: [{ ligne_id, quantite, numero_lot?, date_peremption? }] }
+//   - absent → réceptionne tout le reliquat de chaque ligne
+//   - présent → ne réceptionne que les lignes/quantités fournies
+bonCommandeRouter.post('/:id/receptionner', requirePerm('produits'), wrap(async (req, res) => {
   const cl = await db.connect();
   try {
     await cl.query('BEGIN');
-    const { rows:[bc] } = await cl.query(`SELECT bc.*,f.raison_sociale FROM bons_commande bc JOIN fournisseurs f ON f.id=bc.fournisseur_id WHERE bc.id=$1`,[req.params.id]);
-    if(!bc) return fail(res,'BC non trouvé',404);
-    const { rows:lignes } = await cl.query(`SELECT * FROM bons_commande_lignes WHERE bc_id=$1`,[req.params.id]);
-    const { rows:[{max_id}] } = await cl.query(`SELECT COALESCE(MAX(id),2000) max_id FROM achats`);
-    const numero=`ACH-${Number(max_id)+1}`;
+    const { rows:[bc] } = await cl.query(
+      `SELECT bc.* FROM bons_commande bc WHERE bc.id=$1 FOR UPDATE`, [req.params.id]);
+    if(!bc) { await cl.query('ROLLBACK'); return fail(res,'BC non trouvé',404); }
+    if(bc.statut === 'receptionne') { await cl.query('ROLLBACK'); return fail(res,'BC déjà réceptionné intégralement',409); }
+    if(bc.statut === 'annule')      { await cl.query('ROLLBACK'); return fail(res,'BC annulé',400); }
+
     const magasin_id_bc = scopeMagasin(req) ?? bc.magasin_id ?? 1;
-    const { rows:[achat] } = await cl.query(
-      `INSERT INTO achats (numero,fournisseur_id,date_achat,total_ht,tva_montant,total_ttc,montant_paye,solde_restant,statut_paiement,magasin_id) VALUES ($1,$2,CURRENT_DATE,$3,$4,$5,0,$5,'non_paye',$6) RETURNING *`,
-      [numero,bc.fournisseur_id,bc.total_ht,bc.tva_montant,bc.total_ttc,magasin_id_bc]);
-    for(const l of lignes){
-      await cl.query(`INSERT INTO achats_lignes (achat_id,produit_id,quantite,prix_unitaire,total_ligne) VALUES ($1,$2,$3,$4,$5)`,
-        [achat.id,l.produit_id,l.quantite,l.prix_unitaire,l.total_ligne]);
-      // Récupérer stock avant pour l'historique
+    const { rows:lignes } = await cl.query(
+      `SELECT bcl.*, p.gere_lot FROM bons_commande_lignes bcl
+       JOIN produits p ON p.id=bcl.produit_id WHERE bcl.bc_id=$1`, [req.params.id]);
+
+    // Réceptions demandées (par ligne) ; absent → tout le reliquat
+    const demande: Map<number, any> | null = Array.isArray(req.body?.lignes)
+      ? new Map(req.body.lignes.map((r:any) => [Number(r.ligne_id), r])) : null;
+
+    type Plan = { ligne:any; q:number; numero_lot?:string; date_peremption?:string };
+    const plan: Plan[] = [];
+    for (const l of lignes) {
+      const reste = Number(l.quantite) - Number(l.quantite_recue);
+      if (reste <= 0) continue;
+      if (demande) {
+        const r = demande.get(Number(l.id));
+        if (!r) continue;
+        const q = Math.min(Number(r.quantite) || 0, reste);
+        if (q > 0) plan.push({ ligne:l, q, numero_lot:r.numero_lot, date_peremption:r.date_peremption });
+      } else {
+        plan.push({ ligne:l, q:reste });
+      }
+    }
+    if (plan.length === 0) { await cl.query('ROLLBACK'); return fail(res,'Rien à réceptionner',400); }
+
+    // Achat lié : réutiliser s'il existe (top-up partiel), sinon créer
+    let achat:any;
+    if (bc.achat_id) {
+      const { rows:[a] } = await cl.query(`SELECT * FROM achats WHERE id=$1 FOR UPDATE`, [bc.achat_id]);
+      achat = a;
+    }
+    if (!achat) {
+      const { rows:[{max_id}] } = await cl.query(`SELECT COALESCE(MAX(id),2000) max_id FROM achats`);
+      const numero = `ACH-${Number(max_id)+1}`;
+      const { rows:[a] } = await cl.query(
+        `INSERT INTO achats (numero,fournisseur_id,date_achat,total_ht,tva_montant,total_ttc,montant_paye,solde_restant,statut_paiement,magasin_id,bon_commande_id)
+         VALUES ($1,$2,CURRENT_DATE,0,0,0,0,0,'non_paye',$3,$4) RETURNING *`,
+        [numero, bc.fournisseur_id, magasin_id_bc, bc.id]);
+      achat = a;
+    }
+
+    for (const { ligne:l, q, numero_lot, date_peremption } of plan) {
+      const total_ligne = Math.round(q * Number(l.prix_unitaire));
+      await cl.query(
+        `INSERT INTO achats_lignes (achat_id,produit_id,quantite,prix_unitaire,total_ligne) VALUES ($1,$2,$3,$4,$5)`,
+        [achat.id, l.produit_id, q, l.prix_unitaire, total_ligne]);
+      await cl.query(
+        `UPDATE bons_commande_lignes SET quantite_recue = quantite_recue + $1 WHERE id=$2`, [q, l.id]);
+
+      // Stock + éventuel lot
       const { rows:[stk] } = await cl.query(
-        `SELECT COALESCE(quantite,0) AS quantite FROM stocks WHERE produit_id=$1 AND magasin_id=$2`,
+        `SELECT COALESCE(quantite,0) AS quantite FROM stocks WHERE produit_id=$1 AND magasin_id=$2 FOR UPDATE`,
         [l.produit_id, magasin_id_bc]);
-      const stock_avant = stk?.quantite ?? 0;
+      const stock_avant = Number(stk?.quantite ?? 0);
       await cl.query(
         `INSERT INTO stocks (produit_id,magasin_id,quantite,stock_alerte) VALUES ($1,$2,$3,5)
          ON CONFLICT (produit_id,magasin_id) DO UPDATE SET quantite=stocks.quantite+$3`,
-        [l.produit_id, magasin_id_bc, l.quantite]);
+        [l.produit_id, magasin_id_bc, q]);
+
+      let lotId: number | null = null;
+      if (l.gere_lot) {
+        const { rows:[lot] } = await cl.query(
+          `INSERT INTO lots (produit_id,magasin_id,numero_lot,date_peremption,quantite,prix_achat)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [l.produit_id, magasin_id_bc, numero_lot || `LOT-${bc.numero}`, date_peremption || null, q, l.prix_unitaire]);
+        lotId = lot.id;
+      }
       await cl.query(
-        `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id) VALUES ($1,'entree',$2,$3,$4,'Réception BC',$5,$6)`,
-        [l.produit_id,l.quantite,stock_avant,stock_avant+l.quantite,numero,magasin_id_bc]);
+        `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id,lot_id)
+         VALUES ($1,'entree',$2,$3,$4,'Réception BC',$5,$6,$7)`,
+        [l.produit_id, q, stock_avant, stock_avant + q, bc.numero, magasin_id_bc, lotId]);
     }
-    await cl.query(`UPDATE bons_commande SET statut='receptionne',achat_id=$1 WHERE id=$2`,[achat.id,req.params.id]);
+
+    // Recalcule les totaux de l'achat depuis ses lignes (taux TVA du BC conservé)
+    const { rows:[{ ht }] } = await cl.query(
+      `SELECT COALESCE(SUM(total_ligne),0) AS ht FROM achats_lignes WHERE achat_id=$1`, [achat.id]);
+    const totalHt = Number(ht);
+    const taux = Number(bc.total_ht) > 0 ? Number(bc.tva_montant) / Number(bc.total_ht) : 0;
+    const tva = Math.round(totalHt * taux);
+    const totalTtc = totalHt + tva;
+    await cl.query(
+      `UPDATE achats SET total_ht=$1, tva_montant=$2, total_ttc=$3,
+         solde_restant = $3 - montant_paye,
+         statut_paiement = CASE WHEN $3 - montant_paye <= 0 THEN 'paye'
+                                WHEN montant_paye > 0 THEN 'partiel' ELSE 'non_paye' END
+       WHERE id=$4`, [totalHt, tva, totalTtc, achat.id]);
+
+    // Statut du BC : reçu intégralement ou partiellement
+    const { rows:[{ complet }] } = await cl.query(
+      `SELECT bool_and(quantite_recue >= quantite) AS complet FROM bons_commande_lignes WHERE bc_id=$1`, [bc.id]);
+    const nouveauStatut = complet ? 'receptionne' : 'receptionne_partiel';
+    await cl.query(`UPDATE bons_commande SET statut=$1, achat_id=$2 WHERE id=$3`,
+      [nouveauStatut, achat.id, bc.id]);
+
+    const { rows:[achatFinal] } = await cl.query(`SELECT * FROM achats WHERE id=$1`, [achat.id]);
     await cl.query('COMMIT');
-    ok(res,{achat,bc_id:+req.params.id});
+    ok(res, { achat: achatFinal, bc_id: bc.id, statut: nouveauStatut, lignes_receptionnees: plan.length });
   } catch(e){ await cl.query('ROLLBACK'); throw e; }
   finally { cl.release(); }
 }));
