@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { fcfa } from '../lib/formatters';
+import { fcfa, fdate } from '../lib/formatters';
 import { toast } from '../components/ui';
-import type { Produit, SessionCaisse, Caisse, LignePOS, VenteReglement, SocieteParametres } from '@storebox/shared';
+import type { Produit, SessionCaisse, Caisse, LignePOS, VenteReglement, SocieteParametres, Lot } from '@storebox/shared';
 
 // ─── Types locaux ─────────────────────────────────────────────────
 interface MoyenPaiement { id: number; nom: string; }
@@ -977,17 +977,45 @@ function ModalPesee({ produit, onConfirm, onClose }: {
   const unite     = produit.unite_code ?? 'u';
   const [qte,  setQte]  = useState('1');
   const [prix, setPrix] = useState(String(produit.prix_detail ?? produit.prix_gros ?? 0));
+  const [lot,  setLot]  = useState<Lot | null>(null);   // prochain lot consommé (FIFO)
   const q = Number(qte) || 0;
   const p = Number(prix) || 0;
   const sousTotal = Math.round(q * p);
+
+  // Récupère le lot le plus proche de péremption (1er servi par le FIFO)
+  useEffect(() => {
+    if (!produit.gere_lot) return;
+    api.get<Lot[]>(`/stock/lots?produit_id=${produit.id}`)
+      .then(r => { if (r.success && r.data?.length) setLot(r.data[0]); })
+      .catch(() => {});
+  }, [produit.id, produit.gere_lot]);
+
+  const lotCls = (j?: number) =>
+    j == null ? 'bg-gray-100 text-gray-500'
+      : j < 0  ? 'bg-red-100 text-red-700'
+      : j <= 3 ? 'bg-orange-50 text-orange-700'
+      : j <= 7 ? 'bg-amber-50 text-amber-700'
+      : 'bg-green-50 text-green-700';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-[#1A1917]">{produit.designation}</h3>
-        <p className="text-[13px] text-[#6B6862] mb-4">
+        <p className="text-[13px] text-[#6B6862] mb-2">
           {produit.vendu_au_poids ? `Vendu au ${unite}` : 'Prix à saisir'}
         </p>
+        {lot && (
+          <div className="flex flex-wrap items-center gap-2 text-xs mb-4">
+            <span className={`px-2 py-0.5 rounded-full font-medium ${lotCls(lot.jours_restants)}`}>
+              Lot FIFO{lot.jours_restants != null && (lot.jours_restants < 0
+                ? ` · périmé +${Math.abs(lot.jours_restants)}j`
+                : ` · J-${lot.jours_restants}`)}
+            </span>
+            <span className="text-[#6B6862]">
+              {lot.numero_lot ?? '—'}{lot.date_peremption ? ` · DLC ${fdate(lot.date_peremption)}` : ''} · reste {lot.quantite}
+            </span>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-[#6B6862] mb-1">Quantité ({unite})</label>
