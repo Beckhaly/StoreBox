@@ -1142,6 +1142,14 @@ stockRouter.get('/lots-expirant', wrap(async (req, res) => {
   ok(res, rows);
 }));
 
+// Déclencher l'alerte de péremption (digest SMS/WA au gérant)
+stockRouter.post('/alertes-expiration', requirePerm('produits'), wrap(async (req, res) => {
+  const jours = Number((req.query as Record<string,string>).jours ?? req.body?.jours) || 7;
+  const magasin_id = scopeMagasin(req);
+  const r = await notif.alerteExpiration(db, jours, magasin_id);
+  ok(res, r);
+}));
+
 // Créer un lot (entrée de stock avec date de péremption) — incrémente le stock
 stockRouter.post('/lots', requirePerm('produits'), wrap(async (req, res) => {
   const cl = await db.connect();

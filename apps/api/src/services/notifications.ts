@@ -128,6 +128,11 @@ Merci. StoreBox`.trim(),
 Produit : ${d.designation}
 Réf : ${d.reference}
 Stock : ${d.stock} u. (seuil : ${d.stock_alerte})`.trim(),
+
+  alerteExpiration: (d: { jours: number; lignes: string[] }) =>
+`⏳ ALERTE PÉREMPTION StoreBox
+${d.lignes.length} lot(s) à écouler sous ${d.jours}j :
+${d.lignes.join('\n')}`.trim(),
 };
 
 // ─── SERVICE ─────────────────────────────────────────────────
@@ -174,6 +179,30 @@ export class NotificationService {
     const tel = process.env.GERANT_TEL || '+22507000000';
     await envoyerSMS(tel, msg).catch(() => {});
     await envoyerWhatsApp(tel, msg).catch(() => {});
+  }
+
+  // Alerte interne : lots proches de péremption (digest au gérant)
+  async alerteExpiration(db: any, jours = 7, magasin_id: number | null = null) {
+    const params: any[] = [jours];
+    let q = `SELECT designation, reference, quantite, jours_restants, magasin_nom
+             FROM v_lots_expirant WHERE jours_restants <= $1`;
+    if (magasin_id) { params.push(magasin_id); q += ` AND magasin_id=$${params.length}`; }
+    q += ` ORDER BY jours_restants ASC LIMIT 20`;
+    const { rows } = await db.query(q, params);
+    if (!rows.length) return { lots: 0, envoye: false };
+
+    const etat = (j: number) =>
+      j < 0 ? `périmé depuis ${Math.abs(j)}j`
+            : j === 0 ? 'périme aujourd’hui'
+                      : `dans ${j}j`;
+    const lignes = rows.map((r: any) =>
+      `• ${r.designation} — ${r.quantite} (${etat(Number(r.jours_restants))})`);
+    const msg = TEMPLATES.alerteExpiration({ jours, lignes });
+    const tel = process.env.GERANT_TEL || '+22507000000';
+    await envoyerSMS(tel, msg).catch(() => {});
+    await envoyerWhatsApp(tel, msg).catch(() => {});
+    await this.log(db, 'alerte_expiration', 'sms', tel, msg, 'envoye', `EXP-${jours}j`);
+    return { lots: rows.length, envoye: true, message: msg };
   }
 
   async campagneRelances(db: any) {
