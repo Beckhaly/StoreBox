@@ -14,6 +14,9 @@ services:
     image: postgres:16-alpine
     container_name: storebox-db
     restart: unless-stopped
+    # Base externe : uniquement pour les profils split (prod/dev).
+    # Le profil "solo" embarque sa propre base dans le conteneur unique.
+    profiles: ["prod", "dev"]
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-storebox_ci}
       POSTGRES_USER:     ${POSTGRES_USER:-storebox}
@@ -89,9 +92,42 @@ services:
         condition: service_healthy
     networks: [storebox-net]
 
+  # ── TOUT-EN-UN : PostgreSQL + API + SPA dans un seul conteneur ───
+  storebox:
+    build:
+      context: ..
+      dockerfile: Dockerfile.allinone
+    image: storebox-allinone:latest
+    container_name: storebox-solo
+    profiles: ["solo"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-storebox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storebox}
+      POSTGRES_DB:       ${POSTGRES_DB:-storebox_ci}
+      PGDATA:            /var/lib/postgresql/data/pgdata
+      PORT:              "3001"
+      JWT_SECRET:        ${JWT_SECRET:?Definir JWT_SECRET dans infra/.env}
+      JWT_EXPIRES:       ${JWT_EXPIRES:-8h}
+      FRONTEND_URL:      ${FRONTEND_URL:-http://localhost:8080}
+      SMS_PROVIDER:      ${SMS_PROVIDER:-twilio}
+      WA_PROVIDER:       ${WA_PROVIDER:-twilio}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN:  ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM:        ${TWILIO_FROM:-}
+      TWILIO_WA_FROM:     ${TWILIO_WA_FROM:-whatsapp:+14155238886}
+      GERANT_TEL:         ${GERANT_TEL:-+22507000000}
+    ports:
+      - "${APP_PORT:-8080}:3001"
+    volumes:
+      - solo_data:/var/lib/postgresql/data
+    networks: [storebox-net]
+
 volumes:
   db_data:
     name: storebox_db_data
+  solo_data:
+    name: storebox_solo_data
 
 networks:
   storebox-net:
