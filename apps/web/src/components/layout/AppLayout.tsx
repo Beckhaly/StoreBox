@@ -28,6 +28,7 @@ const NAV = [
     section: 'Stock',
     items: [
       { to: '/stock',        label: 'Mouvements stock',   icon: 'warehouse' },
+      { to: '/lots',         label: 'Lots & péremption',  icon: 'calendar' },
       { to: '/bons-commande',label: 'Bons de commande',   icon: 'bc' },
       { to: '/retours',      label: 'Retours clients',    icon: 'return' },
     ],

@@ -26,6 +26,7 @@ const AdminSocietePage = lazy(() => import('./pages/AdminSocietePage'));
 const DevisPage        = lazy(() => import('./pages/DevisPage'));
 const RetoursPage      = lazy(() => import('./pages/RetoursPage'));
 const StockPage        = lazy(() => import('./pages/StockPage'));
+const LotsPage         = lazy(() => import('./pages/LotsPage'));
 const BonCommandePage  = lazy(() => import('./pages/BonCommandePage'));
 const DepensesPage     = lazy(() => import('./pages/DepensesPage'));
 const MagasinsPage     = lazy(() => import('./pages/MagasinsPage'));
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="devis"        element={<Suspense fallback={<PageLoader />}><DevisPage /></Suspense>} />
         <Route path="retours"      element={<Suspense fallback={<PageLoader />}><RetoursPage /></Suspense>} />
         <Route path="stock"        element={<Suspense fallback={<PageLoader />}><StockPage /></Suspense>} />
+        <Route path="lots"         element={<Suspense fallback={<PageLoader />}><LotsPage /></Suspense>} />
         <Route path="bons-commande" element={<Suspense fallback={<PageLoader />}><BonCommandePage /></Suspense>} />
         <Route path="depenses"      element={<Suspense fallback={<PageLoader />}><DepensesPage /></Suspense>} />
         <Route path="magasins"     element={<Suspense fallback={<PageLoader />}><MagasinsPage /></Suspense>} />
