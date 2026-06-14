@@ -435,7 +435,7 @@ export interface Retour {
 }
 
 // ─── BONS DE COMMANDE ─────────────────────────────────────────
-export type StatutBC = 'brouillon' | 'envoye' | 'confirme' | 'receptionne' | 'annule';
+export type StatutBC = 'brouillon' | 'envoye' | 'confirme' | 'receptionne_partiel' | 'receptionne' | 'annule';
 
 export interface BonCommande {
   id:                number;

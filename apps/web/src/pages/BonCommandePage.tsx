@@ -37,6 +37,7 @@ function statutBadge(statut: StatutBC) {
     brouillon:    { label: 'Brouillon',   cls: 'bg-gray-100 text-gray-600' },
     envoye:       { label: 'Envoyé',      cls: 'bg-blue-100 text-blue-700' },
     confirme:     { label: 'Confirmé',    cls: 'bg-green-100 text-green-700' },
+    receptionne_partiel: { label: 'Reçu partiel', cls: 'bg-amber-100 text-amber-700' },
     receptionne:  { label: 'Réceptionné', cls: 'bg-green-200 text-green-800' },
     annule:       { label: 'Annulé',      cls: 'bg-red-100 text-red-700' },
   };
