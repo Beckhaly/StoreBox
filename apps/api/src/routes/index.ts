@@ -1014,20 +1014,56 @@ stockRouter.post('/ajustement', requirePerm('produits'), wrap(async (req, res) =
     const { produit_id, type, quantite, motif, ref_doc } = req.body;
     const magasin_id = scopeMagasin(req) ?? 1;
     const { rows:[s] } = await cl.query(
-      `SELECT quantite FROM stocks WHERE produit_id=$1 AND magasin_id=$2`,
+      `SELECT s.quantite, p.gere_lot FROM stocks s JOIN produits p ON p.id=s.produit_id
+       WHERE s.produit_id=$1 AND s.magasin_id=$2 FOR UPDATE`,
       [produit_id, magasin_id]);
     if(!s) return fail(res,'Stock introuvable pour ce magasin',404);
     const stockAvant = Number(s.quantite);              // pg renvoie NUMERIC en string
+    const qte = Math.abs(+quantite);
     // entree augmente ; sortie/perte/casse/peremption/don diminuent
-    const delta = type==='entree' ? Math.abs(+quantite) : -Math.abs(+quantite);
+    const delta = type==='entree' ? qte : -qte;
     const nouveau_stock = stockAvant + delta;
     if(nouveau_stock < 0) return fail(res,'Stock insuffisant',400);
     await cl.query(
       `UPDATE stocks SET quantite=$1 WHERE produit_id=$2 AND magasin_id=$3`,
       [nouveau_stock, produit_id, magasin_id]);
+
+    // Démarque lot-aware : sur une sortie d'un produit géré par lot,
+    // on consomme les lots FIFO (péremption la plus proche d'abord).
+    let lotsConsommes = 0;
+    if (delta < 0 && s.gere_lot) {
+      const { rows: lots } = await cl.query(
+        `SELECT id, quantite FROM lots
+         WHERE produit_id=$1 AND magasin_id=$2 AND quantite > 0
+         ORDER BY date_peremption ASC NULLS LAST, date_entree ASC, id ASC
+         FOR UPDATE`,
+        [produit_id, magasin_id]);
+      let reste = qte, running = stockAvant;
+      for (const lot of lots) {
+        if (reste <= 0) break;
+        const prise = Math.min(Number(lot.quantite), reste);
+        await cl.query(`UPDATE lots SET quantite=quantite-$1 WHERE id=$2`, [prise, lot.id]);
+        await cl.query(
+          `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id,lot_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [produit_id, type, prise, running, running - prise, motif||'Démarque', ref_doc||null, magasin_id, lot.id]);
+        running -= prise; reste -= prise; lotsConsommes++;
+      }
+      // Reliquat hors lot (stock hérité sans lot)
+      if (reste > 0) {
+        await cl.query(
+          `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [produit_id, type, reste, running, running - reste, motif||'Démarque', ref_doc||null, magasin_id]);
+      }
+      await cl.query('COMMIT');
+      return ok(res,{ produit_id, type, quantite: qte, stock_avant: stockAvant, stock_apres: nouveau_stock, lots_consommes: lotsConsommes });
+    }
+
+    // Cas simple (entrée, ou produit sans gestion de lot) : un mouvement global
     const { rows:[mv] } = await cl.query(
       `INSERT INTO mouvements_stock (produit_id,type,quantite,stock_avant,stock_apres,motif,ref_doc,magasin_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [produit_id,type,Math.abs(+quantite),stockAvant,nouveau_stock,motif||'Ajustement manuel',ref_doc||null,magasin_id]);
+      [produit_id,type,qte,stockAvant,nouveau_stock,motif||'Ajustement manuel',ref_doc||null,magasin_id]);
     await cl.query('COMMIT');
     ok(res,{...mv, stock_avant:stockAvant, stock_apres:nouveau_stock});
   } catch(e){ await cl.query('ROLLBACK'); throw e; }
