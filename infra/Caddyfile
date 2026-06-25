@@ -1,0 +1,6 @@
+# Reverse-proxy HTTPS pour StoreBox (certificat Let's Encrypt automatique).
+# Le domaine est injecte via la variable CADDY_DOMAIN (infra/.env).
+{$CADDY_DOMAIN} {
+	encode gzip
+	reverse_proxy storebox:3001
+}
