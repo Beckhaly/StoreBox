@@ -91,3 +91,45 @@ Les données persistent dans le volume Docker `storebox_solo_data`
 > Note : architecture « tout-en-un » volontairement simple (un conteneur).
 > Pour monter en charge, on pourra séparer la base (profil `prod` du
 > `docker-compose.yml`) sans changer le code applicatif.
+
+---
+
+## Multi-clients : un conteneur Docker par client
+
+Le script `scripts/storebox-tenant.sh` déploie **un conteneur isolé par
+client** (base + données + sous-domaine dédiés), routés par un Caddy frontal
+(HTTPS automatique).
+
+```bash
+# 1. Construire l'image une fois
+docker compose -f infra/docker-compose.vps.yml build
+
+# 2. Démarrer le proxy Caddy (une fois)
+sudo scripts/storebox-tenant.sh init
+
+# 3. Ajouter des clients (DNS A de chaque sous-domaine → IP du VPS)
+sudo scripts/storebox-tenant.sh add boutique-a  boutique-a.mondomaine.com
+sudo scripts/storebox-tenant.sh add boutique-b  boutique-b.mondomaine.com
+
+# Gérer
+sudo scripts/storebox-tenant.sh list                 # état + RAM par client
+sudo scripts/storebox-tenant.sh logs   boutique-a
+sudo scripts/storebox-tenant.sh backup boutique-a    # dump SQL
+sudo scripts/storebox-tenant.sh remove boutique-a            # garde les données
+sudo scripts/storebox-tenant.sh remove boutique-a --purge    # efface aussi les données
+```
+Chaque client a son volume `storebox_<client>_data` et un `JWT_SECRET` /
+mot de passe Postgres générés aléatoirement.
+
+### Combien de clients par serveur ?
+Empreinte mesurée : **~70–130 Mo de RAM par conteneur** (Postgres + API).
+
+| VPS | Clients (1 docker/client) |
+|---|---|
+| 2 Go RAM | **~5** sûrs (6–7 avec swap) |
+| 4 Go RAM | ~10–12 |
+| 8 Go RAM | ~20 |
+
+La **RAM** est le facteur limitant (le disque et le CPU suivent largement).
+Pour densifier sans plus de RAM : mutualiser PostgreSQL (1 base/client dans un
+Postgres partagé) — possible sans changer le code.
