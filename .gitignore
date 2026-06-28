@@ -8,3 +8,6 @@ logs/
 coverage/
 .vite/
 apps/web/dist/
+
+# Archives d'image livrables
+storebox-*.tar.gz
