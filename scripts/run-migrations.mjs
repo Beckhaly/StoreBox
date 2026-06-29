@@ -14,8 +14,19 @@ const { Pool } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', 'apps', 'api', 'migrations');
 
+// Fichiers de données de DÉMO (produits, ventes, fruits, 2e magasin…).
+// Désactivés par défaut → base vierge pour un nouveau client.
+// Pour les charger (démo/test) : variable d'env SEED_DEMO=true
+const DEMO_MIGRATIONS = new Set([
+  '002_seed.sql',
+  '010_seed_depenses.sql',
+  '015_seed_magasin2.sql',
+  '022_seed_fruits_legumes.sql',
+]);
+const SEED_DEMO = String(process.env.SEED_DEMO).toLowerCase() === 'true';
+
 // Ordre explicite (gere les prefixes 004_/015_ dupliques + seeds)
-const MIGRATIONS = [
+const ALL_MIGRATIONS = [
   '001_schema.sql',
   '002_seed.sql',
   '003_auth.sql',
@@ -41,7 +52,13 @@ const MIGRATIONS = [
   '021_produits_universels.sql',
   '022_seed_fruits_legumes.sql',
   '023_bc_reception.sql',
+  '024_essential_seed.sql',
 ];
+
+// En production (SEED_DEMO != true) on saute les fichiers de démo
+const MIGRATIONS = SEED_DEMO
+  ? ALL_MIGRATIONS
+  : ALL_MIGRATIONS.filter((f) => !DEMO_MIGRATIONS.has(f));
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -66,6 +83,9 @@ async function waitForDb(retries = 30, delayMs = 2000) {
 
 async function main() {
   await waitForDb();
+  console.log(SEED_DEMO
+    ? '▶ Mode DÉMO : données de démonstration incluses'
+    : '▶ Mode PRODUCTION : base vierge (sans données de démo)');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (

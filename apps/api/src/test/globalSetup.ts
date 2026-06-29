@@ -27,6 +27,7 @@ const MIGRATIONS = [
   '020_pos_client.sql',
   '021_produits_universels.sql',
   '023_bc_reception.sql',
+  '024_essential_seed.sql',
 ];
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
