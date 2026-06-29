@@ -11,6 +11,9 @@ set -e
 : "${POSTGRES_USER:=storebox}"
 : "${POSTGRES_PASSWORD:=storebox}"
 : "${POSTGRES_DB:=storebox_ci}"
+# Exporter pour que l'entrypoint Postgres officiel crée bien ce rôle/cette base
+# au 1er démarrage, même si seul POSTGRES_PASSWORD a été fourni.
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
 export DATABASE_URL="${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}}"
 
 echo "▶ Démarrage de PostgreSQL (interne)…"
