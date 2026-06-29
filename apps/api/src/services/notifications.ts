@@ -3,8 +3,46 @@
 // ============================================================
 import axios from 'axios';
 
-const SMS_PROVIDER = process.env.SMS_PROVIDER || 'twilio';
-const WA_PROVIDER  = process.env.WA_PROVIDER  || 'twilio';
+// ─── CONFIGURATION (env par défaut, surchargée par la société en DB) ──
+const cfg = {
+  sms_actif:    true,
+  wa_actif:     true,
+  sms_provider: process.env.SMS_PROVIDER || 'twilio',
+  wa_provider:  process.env.WA_PROVIDER  || 'twilio',
+  gerant_tel:   process.env.GERANT_TEL   || '+22507000000',
+  twilio_sid:     process.env.TWILIO_ACCOUNT_SID || '',
+  twilio_token:   process.env.TWILIO_AUTH_TOKEN  || '',
+  twilio_from:    process.env.TWILIO_FROM        || '',
+  twilio_wa_from: process.env.TWILIO_WA_FROM     || '',
+  orange_key:     process.env.ORANGE_SMS_API_KEY || '',
+  orange_sender:  process.env.ORANGE_SENDER      || 'StoreBox',
+  infobip_key:    process.env.INFOBIP_API_KEY    || '',
+  infobip_base:   process.env.INFOBIP_BASE_URL   || '',
+  infobip_from:   process.env.INFOBIP_FROM       || '',
+  infobip_wa_from:process.env.INFOBIP_WA_FROM    || '',
+};
+
+// Recharge la config depuis societe_parametres (valeurs non vides → priorité sur l'env)
+export async function rafraichirConfigNotif(db: any): Promise<void> {
+  try {
+    const { rows: [s] } = await db.query('SELECT * FROM societe_parametres ORDER BY id DESC LIMIT 1');
+    if (!s) return;
+    const str = (col: string, key: keyof typeof cfg) => {
+      if (s[col] !== null && s[col] !== undefined && s[col] !== '') (cfg as any)[key] = s[col];
+    };
+    if (s.sms_actif !== null && s.sms_actif !== undefined) cfg.sms_actif = s.sms_actif;
+    if (s.wa_actif  !== null && s.wa_actif  !== undefined) cfg.wa_actif  = s.wa_actif;
+    str('sms_provider', 'sms_provider'); str('wa_provider', 'wa_provider');
+    str('gerant_tel', 'gerant_tel');
+    str('twilio_account_sid', 'twilio_sid'); str('twilio_auth_token', 'twilio_token');
+    str('twilio_from', 'twilio_from');       str('twilio_wa_from', 'twilio_wa_from');
+    str('orange_sms_api_key', 'orange_key'); str('orange_sender', 'orange_sender');
+    str('infobip_api_key', 'infobip_key');   str('infobip_base_url', 'infobip_base');
+    str('infobip_from', 'infobip_from');     str('infobip_wa_from', 'infobip_wa_from');
+  } catch {
+    // table absente / pas encore migrée → on garde la config env
+  }
+}
 
 // ─── NORMALISER NUMÉRO CI ────────────────────────────────────
 export function normalizePhone(tel: string): string | null {
@@ -19,20 +57,21 @@ export function normalizePhone(tel: string): string | null {
 
 // ─── SMS ─────────────────────────────────────────────────────
 export async function envoyerSMS(to: string, message: string) {
+  if (!cfg.sms_actif) return { provider: 'desactive', skipped: true };
   const phone = normalizePhone(to);
   if (!phone) throw new Error('Numéro invalide');
-  switch (SMS_PROVIDER) {
+  switch (cfg.sms_provider) {
     case 'twilio':    return sendTwilioSMS(phone, message);
     case 'orange_ci': return sendOrangeSMS(phone, message);
     case 'infobip':   return sendInfobipSMS(phone, message);
-    default: throw new Error(`Provider SMS inconnu: ${SMS_PROVIDER}`);
+    default: throw new Error(`Provider SMS inconnu: ${cfg.sms_provider}`);
   }
 }
 
 async function sendTwilioSMS(to: string, body: string) {
-  const { TWILIO_ACCOUNT_SID: sid, TWILIO_AUTH_TOKEN: token, TWILIO_FROM: from } = process.env;
+  const { twilio_sid: sid, twilio_token: token, twilio_from: from } = cfg;
   if (!sid || !token) throw new Error('Twilio non configuré');
-  const params = new URLSearchParams({ To: to, From: from!, Body: body });
+  const params = new URLSearchParams({ To: to, From: from, Body: body });
   const r = await axios.post(
     `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
     params.toString(),
@@ -42,7 +81,7 @@ async function sendTwilioSMS(to: string, body: string) {
 }
 
 async function sendOrangeSMS(to: string, body: string) {
-  const { ORANGE_SMS_API_KEY: key, ORANGE_SENDER: sender = 'StoreBox' } = process.env;
+  const { orange_key: key, orange_sender: sender } = cfg;
   const r = await axios.post(
     `https://api.orange.com/smsmessaging/v1/outbound/${encodeURIComponent('tel:'+sender)}/requests`,
     { outboundSMSMessageRequest: { address:[`tel:${to}`], senderName: sender, outboundSMSTextMessage:{ message:body } } },
@@ -52,7 +91,7 @@ async function sendOrangeSMS(to: string, body: string) {
 }
 
 async function sendInfobipSMS(to: string, body: string) {
-  const { INFOBIP_API_KEY: key, INFOBIP_BASE_URL: base, INFOBIP_FROM: from } = process.env;
+  const { infobip_key: key, infobip_base: base, infobip_from: from } = cfg;
   const r = await axios.post(`${base}/sms/2/text/advanced`,
     { messages: [{ from, destinations:[{ to }], text: body }] },
     { headers: { Authorization: `App ${key}` } }
@@ -62,19 +101,20 @@ async function sendInfobipSMS(to: string, body: string) {
 
 // ─── WHATSAPP ────────────────────────────────────────────────
 export async function envoyerWhatsApp(to: string, message: string) {
+  if (!cfg.wa_actif) return { provider: 'desactive', skipped: true };
   const phone = normalizePhone(to);
   if (!phone) throw new Error('Numéro invalide');
-  switch (WA_PROVIDER) {
+  switch (cfg.wa_provider) {
     case 'twilio':  return sendTwilioWA(phone, message);
     case 'infobip': return sendInfobipWA(phone, message);
-    default: throw new Error(`Provider WA inconnu: ${WA_PROVIDER}`);
+    default: throw new Error(`Provider WA inconnu: ${cfg.wa_provider}`);
   }
 }
 
 async function sendTwilioWA(to: string, body: string) {
-  const { TWILIO_ACCOUNT_SID: sid, TWILIO_AUTH_TOKEN: token, TWILIO_WA_FROM: from } = process.env;
+  const { twilio_sid: sid, twilio_token: token, twilio_wa_from: from } = cfg;
   if (!sid || !token) throw new Error('Twilio non configuré');
-  const params = new URLSearchParams({ To: `whatsapp:${to}`, From: from!, Body: body });
+  const params = new URLSearchParams({ To: `whatsapp:${to}`, From: from, Body: body });
   const r = await axios.post(
     `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
     params.toString(),
@@ -84,7 +124,7 @@ async function sendTwilioWA(to: string, body: string) {
 }
 
 async function sendInfobipWA(to: string, body: string) {
-  const { INFOBIP_API_KEY: key, INFOBIP_BASE_URL: base, INFOBIP_WA_FROM: from } = process.env;
+  const { infobip_key: key, infobip_base: base, infobip_wa_from: from } = cfg;
   const r = await axios.post(`${base}/whatsapp/1/message/template`,
     { type:'text', from, to, content:{ text: body } },
     { headers: { Authorization: `App ${key}` } }
@@ -176,7 +216,7 @@ export class NotificationService {
 
   async alerteStock(db: any, produit: any) {
     const msg = TEMPLATES.alerteStockInterne(produit);
-    const tel = process.env.GERANT_TEL || '+22507000000';
+    const tel = cfg.gerant_tel;
     await envoyerSMS(tel, msg).catch(() => {});
     await envoyerWhatsApp(tel, msg).catch(() => {});
   }
@@ -198,7 +238,7 @@ export class NotificationService {
     const lignes = rows.map((r: any) =>
       `• ${r.designation} — ${r.quantite} (${etat(Number(r.jours_restants))})`);
     const msg = TEMPLATES.alerteExpiration({ jours, lignes });
-    const tel = process.env.GERANT_TEL || '+22507000000';
+    const tel = cfg.gerant_tel;
     await envoyerSMS(tel, msg).catch(() => {});
     await envoyerWhatsApp(tel, msg).catch(() => {});
     await this.log(db, 'alerte_expiration', 'sms', tel, msg, 'envoye', `EXP-${jours}j`);
