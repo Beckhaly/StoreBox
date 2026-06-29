@@ -1,0 +1,45 @@
+# ═══════════════════════════════════════════════════════════════════
+# StoreBox — Image TOUT-EN-UN : PostgreSQL + API + SPA dans un conteneur
+# (compromis assume : simple a deployer, non scalable horizontalement)
+# ═══════════════════════════════════════════════════════════════════
+
+# ── 1. Build de l'app (Node) ──────────────────────────────────────
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json      apps/api/package.json
+COPY apps/web/package.json      apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN npm ci
+COPY . .
+RUN npm run build -w apps/api \
+ && npm run build -w apps/web \
+ && cp apps/api/src/services/pdf-impl.js apps/api/dist/services/pdf-impl.js \
+ && npm prune --omit=dev
+
+# ── 2. Image finale : Postgres 16 + binaire Node ──────────────────
+FROM postgres:16
+ENV NODE_ENV=production \
+    PORT=3001
+
+# Binaire Node (runtime uniquement ; deps natives deja compilees en build)
+COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/node
+
+WORKDIR /app
+# Dependances de prod + artefacts compiles
+COPY --from=build /app/node_modules        ./node_modules
+COPY --from=build /app/apps/api/dist        ./apps/api/dist
+COPY --from=build /app/apps/web/dist        ./apps/web/dist
+COPY --from=build /app/apps/api/package.json ./apps/api/package.json
+COPY apps/api/migrations                    ./apps/api/migrations
+COPY packages/shared/src                    ./packages/shared/src
+COPY scripts/run-migrations.mjs             ./scripts/run-migrations.mjs
+COPY infra/allinone-entrypoint.sh           /usr/local/bin/allinone-entrypoint.sh
+RUN chmod +x /usr/local/bin/allinone-entrypoint.sh
+
+EXPOSE 3001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||3001)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# Remplace l'entrypoint de l'image postgres
+ENTRYPOINT ["allinone-entrypoint.sh"]

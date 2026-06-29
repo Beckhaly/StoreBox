@@ -1,0 +1,33 @@
+{
+  "name": "storebox",
+  "version": "2.0.0",
+  "private": true,
+  "description": "StoreBox — Gestion commerciale",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev":         "concurrently -n API,WEB -c blue,green \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "build":       "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/web",
+    "start":       "npm run start -w apps/api",
+    "test":        "npm run test --workspaces --if-present",
+    "lint":        "npm run lint --workspaces --if-present",
+    "db:setup":    "npm run db:setup -w apps/api",
+    "db:migrate":  "npm run db:migrate -w apps/api",
+    "db:seed":     "npm run db:seed -w apps/api",
+    "deploy":         "bash scripts/deploy.sh",
+    "deploy:o2switch": "bash scripts/deploy-o2switch.sh",
+    "pm2:start":      "pm2 start ecosystem.config.cjs",
+    "pm2:restart":    "pm2 restart storebox-api",
+    "pm2:logs":       "pm2 logs storebox-api",
+    "pm2:stop":       "pm2 stop storebox-api",
+    "gen-secret":  "node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

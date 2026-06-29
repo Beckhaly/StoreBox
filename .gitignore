@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.env.local
+.DS_Store
+*.log
+logs/
+coverage/
+.vite/
+apps/web/dist/
+
+# Archives d'image livrables
+storebox-*.tar.gz

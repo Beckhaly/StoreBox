@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep *)",
+      "Bash(grep -r \"db.query\\\\|db.connect\\\\|RETURNING\\\\|\\\\$1\\\\|\\\\$2\" /c/telepro-standard/apps/api/src --include=\"*.ts\")",
+      "Bash(npx tsx *)",
+      "Bash(docker cp *)",
+      "Bash(pkill -f \"tsx src/index.ts\")",
+      "Read(//tmp/**)",
+      "Bash(curl -s http://localhost:3001/api/dashboard -H \"Authorization: Bearer test\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(npx tsc *)",
+      "Bash(curl -s \"http://localhost:3002/src/pages/AdminPage.tsx\")",
+      "Bash(powershell -Command \"Stop-Process -Id 25980 -Force\")",
+      "Bash(curl -s \"http://localhost:3001/api/search?q=iphone\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2\\)\\)\")",
+      "Bash(curl -s \"http://localhost:3002/src/components/ui/SearchPalette.tsx\")",
+      "Bash(curl -s \"http://localhost:3002/src/App.tsx\")",
+      "Bash(powershell -Command \"Get-Process -Id 18708 -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(curl -s http://localhost:3002/)",
+      "Bash(npx vitest *)",
+      "Bash(node -e ' *)",
+      "Bash(node gen-rapport-tests.js)",
+      "Bash(node gen-rapport-deploiement.js)"
+    ]
+  }
+}

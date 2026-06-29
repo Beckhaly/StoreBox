@@ -1,0 +1,52 @@
+# ═══════════════════════════════════════════════════════════════════
+# StoreBox — Bundle d'installation CLIENT (image pré-construite).
+# Aucun code source requis : on utilise l'image livrée + Caddy (HTTPS).
+#   Configuration : éditer .env  (DOMAIN, secrets)
+#   Lancement     : docker compose up -d   (ou ./install.sh)
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+
+  storebox:
+    image: ${STOREBOX_IMAGE:-storebox-allinone:latest}
+    container_name: storebox
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     storebox
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Definir POSTGRES_PASSWORD dans .env}"
+      POSTGRES_DB:       storebox_ci
+      PGDATA:            /var/lib/postgresql/data/pgdata
+      PORT:              "3001"
+      JWT_SECRET:        "${JWT_SECRET:?Definir JWT_SECRET dans .env}"
+      JWT_EXPIRES:       8h
+      FRONTEND_URL:      "https://${DOMAIN:?Definir DOMAIN dans .env}"
+      GERANT_TEL:        "${GERANT_TEL:-+22507000000}"
+    volumes:
+      - data:/var/lib/postgresql/data
+    expose:
+      - "3001"
+    networks: [net]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: storebox-caddy
+    restart: unless-stopped
+    command: caddy reverse-proxy --from "${DOMAIN}" --to storebox:3001
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - storebox
+    networks: [net]
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  net:
+    driver: bridge
