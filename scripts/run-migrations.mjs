@@ -14,15 +14,11 @@ const { Pool } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', 'apps', 'api', 'migrations');
 
-// Fichiers de données de DÉMO (produits, ventes, fruits, 2e magasin…).
-// Désactivés par défaut → base vierge pour un nouveau client.
-// Pour les charger (démo/test) : variable d'env SEED_DEMO=true
-const DEMO_MIGRATIONS = new Set([
-  '002_seed.sql',
-  '010_seed_depenses.sql',
-  '015_seed_magasin2.sql',
-  '022_seed_fruits_legumes.sql',
-]);
+// SEED_DEMO=true → garde les données de démonstration.
+// Sinon (défaut production) → une migration finale 025 vide les données
+// de démo pour livrer une base VIERGE à un nouveau client.
+// (On applique TOUTES les migrations puis on nettoie : évite les ruptures
+//  de dépendances FK des fichiers de seed mélangés au schéma.)
 const SEED_DEMO = String(process.env.SEED_DEMO).toLowerCase() === 'true';
 
 // Ordre explicite (gere les prefixes 004_/015_ dupliques + seeds)
@@ -53,12 +49,14 @@ const ALL_MIGRATIONS = [
   '022_seed_fruits_legumes.sql',
   '023_bc_reception.sql',
   '024_essential_seed.sql',
+  '025_clean_demo.sql',     // nettoyage final (production uniquement)
 ];
 
-// En production (SEED_DEMO != true) on saute les fichiers de démo
+// En production (SEED_DEMO != true) on inclut le nettoyage 025 ;
+// en mode démo on le retire pour conserver les données.
 const MIGRATIONS = SEED_DEMO
-  ? ALL_MIGRATIONS
-  : ALL_MIGRATIONS.filter((f) => !DEMO_MIGRATIONS.has(f));
+  ? ALL_MIGRATIONS.filter((f) => f !== '025_clean_demo.sql')
+  : ALL_MIGRATIONS;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
