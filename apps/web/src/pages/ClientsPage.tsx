@@ -12,7 +12,7 @@ import { exportCsv, CSV_CLIENTS } from '../lib/csv';
 const VIDE = {
   code: '', type_client: 'grossiste', raison_sociale: '', contact_nom: '',
   telephone: '', email: '', adresse: '', ville: 'Abidjan',
-  plafond_credit: '', delai_paiement: '0',
+  plafond_credit: '', delai_paiement: '0', solde_initial: '0',
 };
 
 export default function ClientsPage() {
@@ -46,6 +46,7 @@ export default function ClientsPage() {
       ...form,
       plafond_credit: Number(form.plafond_credit) || 0,
       delai_paiement: Number(form.delai_paiement) || 0,
+      solde_initial:  Number(form.solde_initial)  || 0,
     });
     setSaving(false);
     if (res.success) {
@@ -71,6 +72,7 @@ export default function ClientsPage() {
       ville:          c.ville        ?? 'Abidjan',
       plafond_credit: String(c.plafond_credit ?? 0),
       delai_paiement: String(c.delai_paiement ?? 0),
+      solde_initial:  String(c.solde_initial  ?? 0),
       statut:         c.statut,
     });
   };
@@ -83,6 +85,7 @@ export default function ClientsPage() {
       ...editForm,
       plafond_credit: Number(editForm.plafond_credit) || 0,
       delai_paiement: Number(editForm.delai_paiement) || 0,
+      solde_initial:  Number(editForm.solde_initial)  || 0,
     });
     setEditSaving(false);
     if (res.success) {
@@ -290,6 +293,9 @@ export default function ClientsPage() {
               <input className="input text-sm font-mono" type="number" min="0" value={form.delai_paiement} onChange={e => set('delai_paiement', e.target.value)} placeholder="0" />
             </FormRow>
           </FormGrid>
+          <FormRow label="Solde initial (FCFA)">
+            <input className="input text-sm font-mono" type="number" min="0" value={form.solde_initial} onChange={e => set('solde_initial', e.target.value)} placeholder="0" />
+          </FormRow>
           <FormFooter onCancel={() => setOpen(false)} loading={saving} submitLabel="Créer le client" />
         </form>
       </Modal>
@@ -342,6 +348,9 @@ export default function ClientsPage() {
                 <input className="input text-sm font-mono" type="number" min="0" value={editForm.delai_paiement} onChange={e => setEdit('delai_paiement', e.target.value)} />
               </FormRow>
             </FormGrid>
+            <FormRow label="Solde initial (FCFA)">
+              <input className="input text-sm font-mono" type="number" min="0" value={editForm.solde_initial} onChange={e => setEdit('solde_initial', e.target.value)} />
+            </FormRow>
             <FormFooter onCancel={() => setEditClient(null)} loading={editSaving} submitLabel="Enregistrer les modifications" />
           </form>
         )}

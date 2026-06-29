@@ -176,6 +176,7 @@ export interface Client {
   ville?:           string;
   plafond_credit:   number;
   delai_paiement:   number;
+  solde_initial:    number;
   statut:           StatutClient;
   note_risque:      number;
   ca_total?:        number;
@@ -193,6 +194,7 @@ export interface Fournisseur {
   email?:          string;
   pays?:           string;
   delai_paiement:  number;
+  solde_initial:   number;
   total_achats?:   number;
   encours_dette?:  number;
 }

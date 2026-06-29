@@ -100,7 +100,7 @@ produitsRouter.delete('/:id', requirePerm('produits'), wrap(async (req, res) => 
 export const clientsRouter = Router();
 clientsRouter.get('/', wrap(async (req, res) => {
   const { type, statut, search } = req.query as Record<string, string>;
-  let q = `SELECT c.*,COALESCE(SUM(v.total_ttc),0) ca_total,COALESCE(SUM(v.solde_restant),0) encours_creance,MAX(v.date_vente) derniere_vente FROM clients c LEFT JOIN ventes v ON v.client_id=c.id WHERE 1=1`;
+  let q = `SELECT c.*,COALESCE(SUM(v.total_ttc),0) ca_total,COALESCE(SUM(v.solde_restant),0)+c.solde_initial encours_creance,MAX(v.date_vente) derniere_vente FROM clients c LEFT JOIN ventes v ON v.client_id=c.id WHERE 1=1`;
   const p: unknown[] = [];
   if (type)   { p.push(type);          q += ` AND c.type_client=$${p.length}`; }
   if (statut) { p.push(statut);        q += ` AND c.statut=$${p.length}`; }
@@ -119,17 +119,17 @@ clientsRouter.get('/:id', wrap(async (req, res) => {
   ok(res, { ...cli.rows[0], historique_ventes: ventes.rows, creances: creances.rows });
 }));
 clientsRouter.post('/', requirePerm('clients'), wrap(async (req, res) => {
-  const { code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement } = req.body;
+  const { code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,solde_initial } = req.body;
   const { rows } = await db.query(
-    `INSERT INTO clients (code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-    [code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0]);
+    `INSERT INTO clients (code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,solde_initial) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0,solde_initial??0]);
   ok(res, rows[0]);
 }));
 clientsRouter.put('/:id', requirePerm('clients'), wrap(async (req, res) => {
-  const { type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,statut } = req.body;
+  const { type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,statut,solde_initial } = req.body;
   const { rows } = await db.query(
-    `UPDATE clients SET type_client=$1,raison_sociale=$2,contact_nom=$3,telephone=$4,email=$5,adresse=$6,ville=$7,plafond_credit=$8,delai_paiement=$9,statut=$10 WHERE id=$11 RETURNING *`,
-    [type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0,statut??'actif',req.params.id]);
+    `UPDATE clients SET type_client=$1,raison_sociale=$2,contact_nom=$3,telephone=$4,email=$5,adresse=$6,ville=$7,plafond_credit=$8,delai_paiement=$9,statut=$10,solde_initial=$11 WHERE id=$12 RETURNING *`,
+    [type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0,statut??'actif',solde_initial??0,req.params.id]);
   if (!rows.length) return fail(res, 'Client non trouvé', 404);
   ok(res, rows[0]);
 }));
@@ -239,21 +239,21 @@ paiementsRouter.post('/', requirePerm('paiements'), wrap(async (req, res) => {
 // ─── FOURNISSEURS ─────────────────────────────────────────────
 export const fournisseursRouter = Router();
 fournisseursRouter.get('/', wrap(async (_, res) => {
-  const { rows } = await db.query(`SELECT f.*,COALESCE(SUM(a.total_ttc),0) total_achats,COALESCE(SUM(a.solde_restant),0) encours_dette FROM fournisseurs f LEFT JOIN achats a ON a.fournisseur_id=f.id WHERE f.actif=TRUE GROUP BY f.id ORDER BY f.raison_sociale`);
+  const { rows } = await db.query(`SELECT f.*,COALESCE(SUM(a.total_ttc),0) total_achats,COALESCE(SUM(a.solde_restant),0)+f.solde_initial encours_dette FROM fournisseurs f LEFT JOIN achats a ON a.fournisseur_id=f.id WHERE f.actif=TRUE GROUP BY f.id ORDER BY f.raison_sociale`);
   ok(res, rows);
 }));
 fournisseursRouter.post('/', requirePerm('clients'), wrap(async (req, res) => {
-  const { code, raison_sociale, contact_nom, telephone, email, adresse, pays = "Côte d'Ivoire", delai_paiement = 30, conditions } = req.body;
+  const { code, raison_sociale, contact_nom, telephone, email, adresse, pays = "Côte d'Ivoire", delai_paiement = 30, conditions, solde_initial } = req.body;
   const { rows } = await db.query(
-    `INSERT INTO fournisseurs (code,raison_sociale,contact_nom,telephone,email,adresse,pays,delai_paiement,conditions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [code, raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null]);
+    `INSERT INTO fournisseurs (code,raison_sociale,contact_nom,telephone,email,adresse,pays,delai_paiement,conditions,solde_initial) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [code, raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null, solde_initial ?? 0]);
   ok(res, rows[0]);
 }));
 fournisseursRouter.put('/:id', requirePerm('clients'), wrap(async (req, res) => {
-  const { raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions } = req.body;
+  const { raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions, solde_initial } = req.body;
   const { rows } = await db.query(
-    `UPDATE fournisseurs SET raison_sociale=$1,contact_nom=$2,telephone=$3,email=$4,adresse=$5,pays=$6,delai_paiement=$7,conditions=$8 WHERE id=$9 RETURNING *`,
-    [raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null, req.params.id]);
+    `UPDATE fournisseurs SET raison_sociale=$1,contact_nom=$2,telephone=$3,email=$4,adresse=$5,pays=$6,delai_paiement=$7,conditions=$8,solde_initial=$9 WHERE id=$10 RETURNING *`,
+    [raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null, solde_initial ?? 0, req.params.id]);
   if (!rows.length) return fail(res, 'Fournisseur non trouvé', 404);
   ok(res, rows[0]);
 }));

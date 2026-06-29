@@ -10,7 +10,7 @@ import { api } from '../lib/api';
 
 const VIDE = {
   code: '', raison_sociale: '', contact_nom: '', telephone: '',
-  email: '', adresse: '', pays: "Côte d'Ivoire", delai_paiement: '30', conditions: '',
+  email: '', adresse: '', pays: "Côte d'Ivoire", delai_paiement: '30', conditions: '', solde_initial: '0',
 };
 
 export default function FournisseursPage() {
@@ -40,6 +40,7 @@ export default function FournisseursPage() {
     const res = await api.post('/fournisseurs', {
       ...form,
       delai_paiement: Number(form.delai_paiement) || 30,
+      solde_initial:  Number(form.solde_initial)  || 0,
     });
     setSaving(false);
     if (res.success) {
@@ -64,6 +65,7 @@ export default function FournisseursPage() {
       pays:           f.pays           ?? "Côte d'Ivoire",
       delai_paiement: String(f.delai_paiement ?? 30),
       conditions:     '',
+      solde_initial:  String(f.solde_initial  ?? 0),
     });
   };
 
@@ -74,6 +76,7 @@ export default function FournisseursPage() {
     const res = await api.put(`/fournisseurs/${editFrs.id}`, {
       ...editForm,
       delai_paiement: Number(editForm.delai_paiement) || 30,
+      solde_initial:  Number(editForm.solde_initial)  || 0,
     });
     setEditSaving(false);
     if (res.success) {
@@ -136,6 +139,9 @@ export default function FournisseursPage() {
       </FormRow>
       <FormRow label="Conditions commerciales">
         <textarea className="input text-sm resize-none" rows={2} value={f.conditions} onChange={e => s('conditions', e.target.value)} placeholder="Ex: 30% à la commande, solde à 30j..." />
+      </FormRow>
+      <FormRow label="Solde initial (FCFA)">
+        <input className="input text-sm font-mono" type="number" min="0" value={f.solde_initial} onChange={e => s('solde_initial', e.target.value)} placeholder="0" />
       </FormRow>
     </>
   );

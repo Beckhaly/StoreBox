@@ -51,6 +51,7 @@ const ALL_MIGRATIONS = [
   '024_essential_seed.sql',
   '025_clean_demo.sql',     // nettoyage final (production uniquement)
   '026_societe_notifications.sql',
+  '027_solde_initial.sql',
 ];
 
 // En production (SEED_DEMO != true) on inclut le nettoyage 025 ;
