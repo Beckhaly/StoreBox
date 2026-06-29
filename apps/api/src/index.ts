@@ -17,6 +17,8 @@ import {
 } from './routes/index';
 import { requireAuth }   from './middleware/auth';
 import { errorHandler }  from './middleware/errorHandler';
+import { db }            from './lib/db';
+import { rafraichirConfigNotif } from './services/notifications';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
@@ -72,8 +74,10 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`\n🚀 StoreBox API → http://localhost:${PORT}`);
     console.log(`   Mode : ${process.env.NODE_ENV || 'development'}`);
-    const db = process.env.DATABASE_URL?.replace(/:[^:@]+@/, ':***@') ?? 'non configurée';
-    console.log(`   DB   : ${db}\n`);
+    const dbUrl = process.env.DATABASE_URL?.replace(/:[^:@]+@/, ':***@') ?? 'non configurée';
+    console.log(`   DB   : ${dbUrl}\n`);
+    // Charger la config notifications (SMS/WA) depuis la société en DB
+    rafraichirConfigNotif(db).catch(() => {});
   });
 }
 

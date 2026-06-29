@@ -50,6 +50,7 @@ const ALL_MIGRATIONS = [
   '023_bc_reception.sql',
   '024_essential_seed.sql',
   '025_clean_demo.sql',     // nettoyage final (production uniquement)
+  '026_societe_notifications.sql',
 ];
 
 // En production (SEED_DEMO != true) on inclut le nettoyage 025 ;

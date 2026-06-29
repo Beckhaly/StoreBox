@@ -579,6 +579,22 @@ export interface SocieteParametres {
   couleur_secondaire?:    string;
   signature_dirigeant?:   string;
   signature_comptable?:   string;
+  // ─── Notifications SMS / WhatsApp ───
+  sms_actif?:             boolean;
+  wa_actif?:              boolean;
+  sms_provider?:          string;   // twilio | orange_ci | infobip
+  wa_provider?:           string;   // twilio | infobip
+  gerant_tel?:            string;
+  twilio_account_sid?:    string;
+  twilio_auth_token?:     string;
+  twilio_from?:           string;
+  twilio_wa_from?:        string;
+  orange_sms_api_key?:    string;
+  orange_sender?:         string;
+  infobip_api_key?:       string;
+  infobip_base_url?:      string;
+  infobip_from?:          string;
+  infobip_wa_from?:       string;
   created_at?:            string;
   updated_at?:            string;
   updated_by?:            number;

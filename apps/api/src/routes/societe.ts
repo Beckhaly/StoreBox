@@ -2,8 +2,17 @@ import { Router } from 'express';
 import { db } from '../lib/db';
 import { ok, fail, wrap } from '../lib/helpers';
 import { requirePerm } from '../middleware/auth';
+import { rafraichirConfigNotif } from '../services/notifications';
 
 const router = Router();
+
+// Champs de configuration notifications (gérés génériquement dans le PUT)
+const NOTIF_FIELDS = [
+  'sms_actif', 'wa_actif', 'sms_provider', 'wa_provider', 'gerant_tel',
+  'twilio_account_sid', 'twilio_auth_token', 'twilio_from', 'twilio_wa_from',
+  'orange_sms_api_key', 'orange_sender',
+  'infobip_api_key', 'infobip_base_url', 'infobip_from', 'infobip_wa_from',
+];
 
 // GET /api/societe - Récupère les paramètres actuels de la société
 router.get('/', wrap(async (req, res) => {
@@ -165,6 +174,10 @@ router.put('/', requirePerm('admin'), wrap(async (req, res) => {
   if (couleur_secondaire !== undefined) { updates.push(`couleur_secondaire = $${counter++}`); values.push(couleur_secondaire); }
   if (signature_dirigeant !== undefined) { updates.push(`signature_dirigeant = $${counter++}`); values.push(signature_dirigeant); }
   if (signature_comptable !== undefined) { updates.push(`signature_comptable = $${counter++}`); values.push(signature_comptable); }
+  // Champs notifications SMS/WhatsApp (génériques)
+  for (const f of NOTIF_FIELDS) {
+    if (req.body[f] !== undefined) { updates.push(`${f} = $${counter++}`); values.push(req.body[f]); }
+  }
   updates.push(`updated_by = $${counter++}`);
   values.push(req.user?.id);
 
@@ -175,6 +188,8 @@ router.put('/', requirePerm('admin'), wrap(async (req, res) => {
   const { rows } = await db.query(query, values);
 
   if (!rows.length) return fail(res, 'Erreur mise à jour', 500);
+  // Recharger la config de notif pour que les nouveaux identifiants prennent effet
+  await rafraichirConfigNotif(db).catch(() => {});
   ok(res, rows[0]);
 }));
 

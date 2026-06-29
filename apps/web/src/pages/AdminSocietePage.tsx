@@ -184,10 +184,11 @@ function ColorField({
 // ── Page principale ───────────────────────────────────────────────
 
 const TABS = [
-  { k: 'identite',  label: 'Identité',        icon: '🏢' },
-  { k: 'contact',   label: 'Contact',          icon: '📞' },
-  { k: 'finance',   label: 'Finance',          icon: '💰' },
-  { k: 'apparence', label: 'Apparence',        icon: '🎨' },
+  { k: 'identite',      label: 'Identité',      icon: '🏢' },
+  { k: 'contact',       label: 'Contact',        icon: '📞' },
+  { k: 'finance',       label: 'Finance',        icon: '💰' },
+  { k: 'notifications', label: 'Notifications',  icon: '📱' },
+  { k: 'apparence',     label: 'Apparence',      icon: '🎨' },
 ] as const;
 
 type TabKey = typeof TABS[number]['k'];
@@ -498,6 +499,98 @@ export default function AdminSocietePage() {
           </div>
         )}
 
+        {/* ══════════ ONGLET NOTIFICATIONS ═════════════════════════════ */}
+        {tab === 'notifications' && (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <Section title="Activation & fournisseurs" icon={<IcoPhone />} cols={1}>
+                <Toggle
+                  label="Activer les SMS"
+                  hint="Confirmations de vente, relances créances, alertes internes"
+                  checked={form.sms_actif ?? true}
+                  onChange={v => setVal('sms_actif', v)}
+                />
+                <Toggle
+                  label="Activer WhatsApp"
+                  hint="Confirmations (grossistes) et relances par WhatsApp"
+                  checked={form.wa_actif ?? true}
+                  onChange={v => setVal('wa_actif', v)}
+                />
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <Field label="Fournisseur SMS">
+                    <select className="input" value={form.sms_provider ?? 'twilio'} onChange={set('sms_provider')}>
+                      <option value="twilio">Twilio</option>
+                      <option value="orange_ci">Orange CI</option>
+                      <option value="infobip">Infobip</option>
+                    </select>
+                  </Field>
+                  <Field label="Fournisseur WhatsApp">
+                    <select className="input" value={form.wa_provider ?? 'twilio'} onChange={set('wa_provider')}>
+                      <option value="twilio">Twilio</option>
+                      <option value="infobip">Infobip</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Téléphone du gérant" hint="Destinataire des alertes internes (stock, péremption)">
+                  <input className="input" value={form.gerant_tel ?? ''} onChange={set('gerant_tel')} placeholder="+225 07 00 00 00 00" />
+                </Field>
+              </Section>
+
+              <Section title="Twilio" icon={<IcoGear />} cols={1}>
+                <Field label="Account SID">
+                  <input className="input font-mono text-[12px]" value={form.twilio_account_sid ?? ''} onChange={set('twilio_account_sid')} placeholder="ACxxxxxxxx…" />
+                </Field>
+                <Field label="Auth Token">
+                  <input className="input font-mono text-[12px]" type="password" value={form.twilio_auth_token ?? ''} onChange={set('twilio_auth_token')} placeholder="••••••••" />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Numéro SMS" hint="From">
+                    <input className="input" value={form.twilio_from ?? ''} onChange={set('twilio_from')} placeholder="+1234567890" />
+                  </Field>
+                  <Field label="Numéro WhatsApp" hint="ex : whatsapp:+14155238886">
+                    <input className="input text-[12px]" value={form.twilio_wa_from ?? ''} onChange={set('twilio_wa_from')} placeholder="whatsapp:+1415…" />
+                  </Field>
+                </div>
+              </Section>
+            </div>
+
+            <div className="space-y-4">
+              <Section title="Orange CI" icon={<IcoGear />} cols={1}>
+                <Field label="Clé API">
+                  <input className="input font-mono text-[12px]" type="password" value={form.orange_sms_api_key ?? ''} onChange={set('orange_sms_api_key')} placeholder="••••••••" />
+                </Field>
+                <Field label="Expéditeur (sender)">
+                  <input className="input" value={form.orange_sender ?? ''} onChange={set('orange_sender')} placeholder="StoreBox" />
+                </Field>
+              </Section>
+
+              <Section title="Infobip" icon={<IcoGear />} cols={1}>
+                <Field label="Clé API">
+                  <input className="input font-mono text-[12px]" type="password" value={form.infobip_api_key ?? ''} onChange={set('infobip_api_key')} placeholder="••••••••" />
+                </Field>
+                <Field label="Base URL">
+                  <input className="input text-[12px]" type="url" value={form.infobip_base_url ?? ''} onChange={set('infobip_base_url')} placeholder="https://xxxxx.api.infobip.com" />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Expéditeur SMS">
+                    <input className="input" value={form.infobip_from ?? ''} onChange={set('infobip_from')} placeholder="StoreBox" />
+                  </Field>
+                  <Field label="Expéditeur WhatsApp">
+                    <input className="input" value={form.infobip_wa_from ?? ''} onChange={set('infobip_wa_from')} placeholder="447xxxx…" />
+                  </Field>
+                </div>
+              </Section>
+
+              <div className="card p-4 bg-[#FBFAF8] border-amber-200/60">
+                <p className="text-[11px] text-[#6B6862] leading-relaxed">
+                  🔒 Les identifiants sont stockés en base et utilisés côté serveur.
+                  Laisser un champ vide conserve la valeur des variables d'environnement.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ══════════ ONGLET APPARENCE ═════════════════════════════════ */}
         {tab === 'apparence' && (
           <div className="grid sm:grid-cols-2 gap-4">
@@ -592,26 +685,6 @@ export default function AdminSocietePage() {
 
             {/* Colonne droite */}
             <div className="space-y-4">
-              <Section title="Notifications & Diffusion" icon={<IcoGear />} cols={1}>
-                <Toggle
-                  label="Activer les SMS"
-                  hint="Envoie des alertes et confirmations par SMS via Twilio / Orange CI"
-                  checked={true}
-                  onChange={() => {}}
-                />
-                <Toggle
-                  label="Activer WhatsApp"
-                  hint="Confirmations de commande et relances créances par WhatsApp"
-                  checked={true}
-                  onChange={() => {}}
-                />
-                <Toggle
-                  label="Alertes de stock automatiques"
-                  hint="Notification quand le stock d'un produit passe sous le seuil d'alerte"
-                  checked={true}
-                  onChange={() => {}}
-                />
-              </Section>
 
               <Section title="Informations système" icon={<IcoGear />} cols={1}>
                 <div className="grid grid-cols-2 gap-3">
