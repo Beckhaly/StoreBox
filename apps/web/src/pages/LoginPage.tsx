@@ -245,7 +245,9 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Comptes démo */}
+          {/* Comptes démo — masqués par défaut ; affichés seulement en build démo
+              (VITE_SHOW_DEMO=true). Jamais visibles sur une instance client. */}
+          {(import.meta as any).env.VITE_SHOW_DEMO === 'true' && (
           <div className="mt-8">
             <div className="flex items-center gap-3 mb-3">
               <div className="flex-1 h-px bg-slate-200" />
@@ -276,6 +278,7 @@ export default function LoginPage() {
               Mot de passe : Storebox@123
             </p>
           </div>
+          )}
         </div>
       </div>
 
