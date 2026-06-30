@@ -25,8 +25,8 @@ dashboardRouter.get('/', wrap(async (req, res) => {
   const mf = magasin_id ? `AND magasin_id=${magasin_id}` : '';
   const [ca, creances, dettes, treso, stock, top, chart] = await Promise.all([
     db.query(`SELECT COALESCE(SUM(total_ttc),0) ca_mois, COUNT(*) nb_ventes FROM ventes WHERE date_vente>=date_trunc('month',CURRENT_DATE) ${mf}`),
-    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN categorie_echeance IN('echu_30j','echu_60j','contentieux') THEN solde_restant END),0) en_retard FROM v_creances_clients ${magasin_id ? `WHERE magasin_id=${magasin_id}` : ''}`),
-    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN date_echeance<=CURRENT_DATE+5 THEN solde_restant END),0) urgent FROM v_dettes_fournisseurs ${magasin_id ? `WHERE magasin_id=${magasin_id}` : ''}`),
+    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN categorie_echeance IN('echu_30j','echu_60j','contentieux') THEN solde_restant END),0) en_retard FROM v_creances_clients ${magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : ''}`),
+    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN date_echeance<=CURRENT_DATE+5 THEN solde_restant END),0) urgent FROM v_dettes_fournisseurs ${magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : ''}`),
     db.query(`SELECT COALESCE(SUM(CASE WHEN type_paiement='encaissement' THEN montant END),0) entrees, COALESCE(SUM(CASE WHEN type_paiement='decaissement' THEN montant END),0) sorties FROM paiements WHERE date_paiement>=date_trunc('month',CURRENT_DATE) ${mf}`),
     magasin_id
       ? db.query(`SELECT COUNT(CASE WHEN quantite=0 THEN 1 END) ruptures, COUNT(CASE WHEN alerte_stock AND quantite>0 THEN 1 END) alertes FROM v_stocks WHERE actif=TRUE AND magasin_id=${magasin_id}`)
@@ -195,11 +195,11 @@ creancesRouter.get('/', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
   let q = `SELECT * FROM v_creances_clients WHERE 1=1`;
   const p: unknown[] = [];
-  if (magasin_id) { p.push(magasin_id); q += ` AND magasin_id=$${p.length}`; }
+  if (magasin_id) { p.push(magasin_id); q += ` AND (magasin_id=$${p.length} OR magasin_id IS NULL)`; }
   if (categorie)  { p.push(categorie);  q += ` AND categorie_echeance=$${p.length}`; }
   if (client_id)  { p.push(+client_id); q += ` AND client_id=$${p.length}`; }
   q += ' ORDER BY jours_retard DESC NULLS LAST';
-  const mf = magasin_id ? `WHERE magasin_id=${magasin_id}` : '';
+  const mf = magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [{ rows }, { rows: [ag] }] = await Promise.all([
     db.query(q, p),
     db.query(`SELECT COALESCE(SUM(solde_restant),0) total,COALESCE(SUM(CASE WHEN categorie_echeance='non_echu' THEN solde_restant END),0) non_echu,COALESCE(SUM(CASE WHEN categorie_echeance='echu_30j' THEN solde_restant END),0) echu_30j,COALESCE(SUM(CASE WHEN categorie_echeance='echu_60j' THEN solde_restant END),0) echu_60j,COALESCE(SUM(CASE WHEN categorie_echeance='contentieux' THEN solde_restant END),0) contentieux FROM v_creances_clients ${mf}`),
@@ -211,7 +211,7 @@ creancesRouter.get('/', wrap(async (req, res) => {
 export const dettesRouter = Router();
 dettesRouter.get('/', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
-  const mf = magasin_id ? `WHERE magasin_id=${magasin_id}` : '';
+  const mf = magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [{ rows }, { rows: [total] }] = await Promise.all([
     db.query(`SELECT * FROM v_dettes_fournisseurs ${mf} ORDER BY jours_retard DESC NULLS LAST,date_echeance`),
     db.query(`SELECT COALESCE(SUM(solde_restant),0) total,COALESCE(SUM(CASE WHEN date_echeance<=CURRENT_DATE THEN solde_restant END),0) echu,COALESCE(SUM(CASE WHEN date_echeance BETWEEN CURRENT_DATE+1 AND CURRENT_DATE+15 THEN solde_restant END),0) urgent FROM v_dettes_fournisseurs ${mf}`),
@@ -397,7 +397,7 @@ rapportsRouter.get('/performance', wrap(async (req, res) => {
 rapportsRouter.get('/clients', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
   const mf = magasin_id ? `AND v.magasin_id=${magasin_id}` : '';
-  const mfVc = magasin_id ? `AND magasin_id=${magasin_id}` : '';
+  const mfVc = magasin_id ? `AND (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [clients, ageing, debiteurs] = await Promise.all([
     db.query(`
       SELECT c.id, c.raison_sociale,
@@ -429,7 +429,7 @@ rapportsRouter.get('/clients', wrap(async (req, res) => {
 rapportsRouter.get('/fournisseurs', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
   const mf = magasin_id ? `AND a.magasin_id=${magasin_id}` : '';
-  const mfVd = magasin_id ? `AND magasin_id=${magasin_id}` : '';
+  const mfVd = magasin_id ? `AND (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [fournisseurs, dettes_urgentes] = await Promise.all([
     db.query(`
       SELECT f.id, f.raison_sociale,
