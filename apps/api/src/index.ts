@@ -22,7 +22,7 @@ import { rafraichirConfigNotif } from './services/notifications';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // logos base64 (UI: max 2 Mo + ~33% encodage)
 
 // ── Publiques
 app.use('/api/auth', authRouter);
