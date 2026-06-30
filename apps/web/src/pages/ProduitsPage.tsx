@@ -3,7 +3,7 @@ import { PageHeader } from '../components/layout/PageHeader';
 import { Spinner, StockBar, toast } from '../components/ui';
 import { Modal, FormRow, FormGrid, FormFooter } from '../components/ui/Modal';
 import { useApi } from '../hooks/useApi';
-import { Produit, PrixPalier } from '@storebox/shared';
+import { Produit, CategoriePrix, ProduitPrix, PrixPalier } from '@storebox/shared';
 import { fcfa, fcfaM } from '../lib/formatters';
 import { api } from '../lib/api';
 import { exportCsv, CSV_PRODUITS } from '../lib/csv';
@@ -103,56 +103,106 @@ function FormFields({ f, s, refs }: { f: typeof VIDE; s: (k: string, v: string) 
   );
 }
 
-function PaliersSection({ paliers, onChange }: { paliers: PrixPalier[]; onChange: (p: PrixPalier[]) => void }) {
-  const setPalier = (i: number, k: keyof PrixPalier, v: any) =>
-    onChange(paliers.map((p, idx) => idx === i ? { ...p, [k]: v } : p));
+function PrixSection({ prixList, categories, onChange }: {
+  prixList: ProduitPrix[];
+  categories: CategoriePrix[];
+  onChange: (p: ProduitPrix[]) => void;
+}) {
+  const dejaCodes = new Set(prixList.map(p => p.categorie_prix_id));
+  const disponibles = categories.filter(c => !dejaCodes.has(c.id));
+
+  const setField = (i: number, k: keyof ProduitPrix, v: any) =>
+    onChange(prixList.map((p, idx) => idx === i ? { ...p, [k]: v } : p));
+
+  const addPalier = (i: number) =>
+    onChange(prixList.map((p, idx) => idx === i
+      ? { ...p, paliers: [...p.paliers, { qte_min: 1, qte_max: null, prix: p.prix }] }
+      : p));
+
+  const setPalier = (i: number, j: number, k: keyof PrixPalier, v: any) =>
+    onChange(prixList.map((p, idx) => idx === i
+      ? { ...p, paliers: p.paliers.map((pl, jdx) => jdx === j ? { ...pl, [k]: v } : pl) }
+      : p));
+
+  const removePalier = (i: number, j: number) =>
+    onChange(prixList.map((p, idx) => idx === i
+      ? { ...p, paliers: p.paliers.filter((_, jdx) => jdx !== j) }
+      : p));
+
+  const addCat = () => {
+    if (!disponibles.length) return;
+    const c = disponibles[0];
+    onChange([...prixList, { categorie_prix_id: c.id, code: c.code, libelle: c.libelle, prix: 0, paliers: [] }]);
+  };
 
   return (
     <div className="mt-3 pt-3 border-t border-[#E7E4DE]">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-medium text-[#6B6862]">Paliers de prix par quantité</p>
-        <button type="button"
-          onClick={() => onChange([...paliers, { libelle: '', qte_min: 1, qte_max: null, prix: 0, type_vente: 'tous' }])}
-          className="text-[11px] font-medium text-blue-600 hover:text-blue-700">
-          + Ajouter palier
-        </button>
+        <p className="text-xs font-medium text-[#6B6862]">Prix par catégorie</p>
+        {disponibles.length > 0 && (
+          <button type="button" onClick={addCat}
+            className="text-[11px] font-medium text-blue-600 hover:text-blue-700">
+            + Catégorie
+          </button>
+        )}
       </div>
-      {paliers.length === 0 ? (
-        <p className="text-[11px] text-[#A8A49E] py-1">Aucun palier — prix gros / détail standard appliqué</p>
+      {prixList.length === 0 ? (
+        <p className="text-[11px] text-[#A8A49E] py-1">
+          Aucune catégorie — prix gros / détail standard utilisés
+        </p>
       ) : (
-        <>
-          <div className="grid grid-cols-[1fr_70px_70px_90px_80px_20px] gap-1 mb-1">
-            {['Libellé','Qté min','Qté max','Prix (F)','Canal',''].map(h => (
-              <span key={h} className="text-[9px] font-mono text-[#A8A49E] uppercase">{h}</span>
-            ))}
-          </div>
-          <div className="space-y-1">
-            {paliers.map((p, i) => (
-              <div key={i} className="grid grid-cols-[1fr_70px_70px_90px_80px_20px] gap-1 items-center">
-                <input className="input text-xs py-1" placeholder="Ex: Demi-gros"
-                  value={p.libelle} onChange={e => setPalier(i, 'libelle', e.target.value)} />
-                <input className="input text-xs py-1 font-mono" type="number" min="0" step="any"
-                  value={p.qte_min} onChange={e => setPalier(i, 'qte_min', Number(e.target.value))} />
-                <input className="input text-xs py-1 font-mono" type="number" min="0" step="any"
-                  placeholder="∞"
-                  value={p.qte_max ?? ''} onChange={e => setPalier(i, 'qte_max', e.target.value ? Number(e.target.value) : null)} />
-                <input className="input text-xs py-1 font-mono" type="number" min="0"
-                  value={p.prix} onChange={e => setPalier(i, 'prix', Number(e.target.value))} />
-                <select className="input text-xs py-1" value={p.type_vente}
-                  onChange={e => setPalier(i, 'type_vente', e.target.value)}>
-                  <option value="tous">Tous</option>
-                  <option value="gros">Gros</option>
-                  <option value="detail">Détail</option>
+        <div className="space-y-3">
+          {prixList.map((pp, i) => (
+            <div key={i} className="border border-[#E7E4DE] rounded-lg p-2.5 space-y-2">
+              {/* Catégorie + prix de base */}
+              <div className="grid grid-cols-[1fr_110px_20px] gap-2 items-center">
+                <select className="input text-xs py-1"
+                  value={pp.categorie_prix_id}
+                  onChange={e => {
+                    const c = categories.find(c => c.id === +e.target.value);
+                    setField(i, 'categorie_prix_id', +e.target.value);
+                    if (c) { setField(i, 'code', c.code); setField(i, 'libelle', c.libelle); }
+                  }}>
+                  {categories.filter(c => c.id === pp.categorie_prix_id || !dejaCodes.has(c.id)).map(c => (
+                    <option key={c.id} value={c.id}>{c.libelle}</option>
+                  ))}
                 </select>
-                <button type="button" onClick={() => onChange(paliers.filter((_, idx) => idx !== i))}
-                  className="text-[#A8A49E] hover:text-red-500 text-base leading-none font-bold">×</button>
+                <input className="input text-xs py-1 font-mono" type="number" min="0"
+                  placeholder="Prix de base (F)"
+                  value={pp.prix || ''} onChange={e => setField(i, 'prix', Number(e.target.value))} />
+                <button type="button" onClick={() => onChange(prixList.filter((_, idx) => idx !== i))}
+                  className="text-[#A8A49E] hover:text-red-500 text-base font-bold leading-none">×</button>
               </div>
-            ))}
-          </div>
-          <p className="text-[9px] text-[#A8A49E] mt-1.5">
-            Qté max vide = illimité · Le palier le plus spécifique (qté min la plus haute) est appliqué en premier
-          </p>
-        </>
+              {/* Paliers optionnels */}
+              {pp.paliers.length > 0 && (
+                <div className="space-y-1 ml-2">
+                  <div className="grid grid-cols-[70px_70px_90px_20px] gap-1">
+                    {['Qté min','Qté max','Prix (F)',''].map(h => (
+                      <span key={h} className="text-[9px] font-mono text-[#A8A49E] uppercase">{h}</span>
+                    ))}
+                  </div>
+                  {pp.paliers.map((pl, j) => (
+                    <div key={j} className="grid grid-cols-[70px_70px_90px_20px] gap-1 items-center">
+                      <input className="input text-xs py-1 font-mono" type="number" min="0" step="any"
+                        value={pl.qte_min} onChange={e => setPalier(i, j, 'qte_min', Number(e.target.value))} />
+                      <input className="input text-xs py-1 font-mono" type="number" min="0" step="any"
+                        placeholder="∞"
+                        value={pl.qte_max ?? ''} onChange={e => setPalier(i, j, 'qte_max', e.target.value ? Number(e.target.value) : null)} />
+                      <input className="input text-xs py-1 font-mono" type="number" min="0"
+                        value={pl.prix} onChange={e => setPalier(i, j, 'prix', Number(e.target.value))} />
+                      <button type="button" onClick={() => removePalier(i, j)}
+                        className="text-[#A8A49E] hover:text-red-500 text-sm font-bold">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={() => addPalier(i)}
+                className="text-[10px] text-[#6B6862] hover:text-blue-600 ml-2">
+                + Palier quantité (optionnel)
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -175,9 +225,10 @@ export default function ProduitsPage() {
   const [editForm,    setEditForm]    = useState({ ...VIDE });
   const [editSaving,  setEditSaving]  = useState(false);
 
-  // Paliers de prix
-  const [createPaliers, setCreatePaliers] = useState<PrixPalier[]>([]);
-  const [editPaliers,   setEditPaliers]   = useState<PrixPalier[]>([]);
+  // Prix par catégorie
+  const { data: catsPrix = [] } = useApi<CategoriePrix[]>('/produits/categories-prix');
+  const [createPrix, setCreatePrix] = useState<ProduitPrix[]>([]);
+  const [editPrix,   setEditPrix]   = useState<ProduitPrix[]>([]);
 
   const set     = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   const setEdit = (k: string, v: string) => setEditForm(f => ({ ...f, [k]: v }));
@@ -199,9 +250,8 @@ export default function ProduitsPage() {
   const alertes  = (produits ?? []).filter(p => p.stock > 0 && p.stock < p.stock_alerte).length;
   const valeur   = (produits ?? []).reduce((s, p) => s + p.stock * p.prix_achat, 0);
 
-  const savePaliers = async (produitId: number, paliers: PrixPalier[]) => {
-    if (paliers.length > 0)
-      await api.put(`/produits/${produitId}/paliers`, { paliers });
+  const savePrix = async (produitId: number, prixList: ProduitPrix[]) => {
+    await api.put(`/produits/${produitId}/prix`, { categories: prixList });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -224,13 +274,13 @@ export default function ProduitsPage() {
       gere_peremption: form.gere_peremption === '1',
       gere_lot:        form.gere_lot        === '1',
     });
-    if (res.success && createPaliers.length > 0) await savePaliers((res.data as any).id, createPaliers);
+    if (res.success) await savePrix((res.data as any).id, createPrix);
     setSaving(false);
     if (res.success) {
       toast('Produit créé avec succès', 'success');
       setOpen(false);
       setForm({ ...VIDE });
-      setCreatePaliers([]);
+      setCreatePrix([]);
       refresh();
     } else {
       toast(res.error ?? 'Erreur lors de la création', 'error');
@@ -239,9 +289,20 @@ export default function ProduitsPage() {
 
   const openEdit = (p: Produit) => {
     setEditProduit(p);
-    setEditPaliers((p.paliers ?? []).map(pp => ({
-      libelle: pp.libelle, qte_min: Number(pp.qte_min), qte_max: pp.qte_max != null ? Number(pp.qte_max) : null,
-      prix: Number(pp.prix), type_vente: pp.type_vente,
+    setEditPrix((p.categories_prix ?? []).map(cp => ({
+      id: cp.id,
+      categorie_prix_id: cp.categorie_prix_id,
+      code: cp.code,
+      libelle: cp.libelle,
+      ordre: cp.ordre,
+      prix: Number(cp.prix),
+      paliers: (cp.paliers ?? []).map(pl => ({
+        id: pl.id,
+        produit_prix_id: pl.produit_prix_id,
+        qte_min: Number(pl.qte_min),
+        qte_max: pl.qte_max != null ? Number(pl.qte_max) : null,
+        prix: Number(pl.prix),
+      })),
     })));
     setEditForm({
       reference:    p.reference,
@@ -285,7 +346,7 @@ export default function ProduitsPage() {
         gere_peremption: editForm.gere_peremption === '1',
         gere_lot:        editForm.gere_lot        === '1',
       }),
-      api.put(`/produits/${editProduit.id}/paliers`, { paliers: editPaliers }),
+      savePrix(editProduit.id, editPrix),
     ]);
     setEditSaving(false);
     if (res.success) {
@@ -395,14 +456,14 @@ export default function ProduitsPage() {
       </div>
 
       {/* Modal création */}
-      <Modal open={open} onClose={() => { setOpen(false); setCreatePaliers([]); }} title="Nouveau produit" size="lg">
+      <Modal open={open} onClose={() => { setOpen(false); setCreatePrix([]); }} title="Nouveau produit" size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           <FormFields f={form} s={set} refs={refs} />
           <FormRow label="Stock initial">
             <input className="input text-sm font-mono" type="number" min="0" value={form.stock} onChange={e => set('stock', e.target.value)} />
           </FormRow>
-          <PaliersSection paliers={createPaliers} onChange={setCreatePaliers} />
-          <FormFooter onCancel={() => { setOpen(false); setCreatePaliers([]); }} loading={saving} submitLabel="Créer le produit" />
+          <PrixSection prixList={createPrix} categories={catsPrix ?? []} onChange={setCreatePrix} />
+          <FormFooter onCancel={() => { setOpen(false); setCreatePrix([]); }} loading={saving} submitLabel="Créer le produit" />
         </form>
       </Modal>
 
@@ -411,7 +472,7 @@ export default function ProduitsPage() {
         {editProduit && (
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <FormFields f={editForm} s={setEdit} refs={refs} />
-            <PaliersSection paliers={editPaliers} onChange={setEditPaliers} />
+            <PrixSection prixList={editPrix} categories={catsPrix ?? []} onChange={setEditPrix} />
             <FormFooter onCancel={() => setEditProduit(null)} loading={editSaving} submitLabel="Enregistrer les modifications" />
           </form>
         )}

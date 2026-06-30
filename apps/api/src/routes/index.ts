@@ -52,7 +52,14 @@ produitsRouter.get('/', wrap(async (req, res) => {
     : `LEFT JOIN (SELECT produit_id, SUM(quantite) quantite, MIN(stock_alerte) stock_alerte FROM stocks GROUP BY produit_id) s ON s.produit_id=p.id`;
   let q = `SELECT p.*,COALESCE(s.quantite,0) AS stock,m.nom marque,m.id marque_id_sel,c.libelle categorie,c.id categorie_id_sel,
       u.code AS unite_code, u.libelle AS unite_libelle, u.decimales AS unite_decimales,
-      (SELECT COALESCE(JSON_AGG(pp ORDER BY pp.qte_min),'[]'::json) FROM prix_paliers pp WHERE pp.produit_id=p.id AND pp.actif=TRUE) AS paliers
+      (SELECT COALESCE(JSON_AGG(
+         JSON_BUILD_OBJECT('id',pp.id,'categorie_prix_id',pp.categorie_prix_id,
+           'code',cp.code,'libelle',cp.libelle,'ordre',cp.ordre,'prix',pp.prix,
+           'paliers',(SELECT COALESCE(JSON_AGG(pl ORDER BY pl.qte_min),'[]'::json)
+                      FROM prix_paliers pl WHERE pl.produit_prix_id=pp.id))
+         ORDER BY cp.ordre),'[]'::json)
+       FROM produits_prix pp JOIN categories_prix cp ON cp.id=pp.categorie_prix_id
+       WHERE pp.produit_id=p.id AND pp.actif=TRUE) AS categories_prix
     FROM produits p
     ${stockJoin}
     LEFT JOIN marques m ON m.id=p.marque_id
@@ -97,22 +104,46 @@ produitsRouter.delete('/:id', requirePerm('produits'), wrap(async (req, res) => 
   ok(res, { id: +req.params.id });
 }));
 
-// PUT /produits/:id/paliers — remplace tous les paliers d'un produit
-produitsRouter.put('/:id/paliers', requirePerm('produits'), wrap(async (req, res) => {
-  const produit_id = +req.params.id;
-  const paliers: any[] = req.body.paliers ?? [];
-  await db.query('DELETE FROM prix_paliers WHERE produit_id=$1', [produit_id]);
-  for (let i = 0; i < paliers.length; i++) {
-    const p = paliers[i];
-    if (!p.prix || !p.qte_min) continue;
-    await db.query(
-      `INSERT INTO prix_paliers (produit_id,libelle,qte_min,qte_max,prix,type_vente,ordre)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [produit_id, p.libelle ?? '', p.qte_min, p.qte_max || null, p.prix, p.type_vente ?? 'tous', i]
-    );
-  }
-  const { rows } = await db.query('SELECT * FROM prix_paliers WHERE produit_id=$1 ORDER BY qte_min', [produit_id]);
+// GET /produits/categories-prix — référentiel des catégories de prix
+produitsRouter.get('/categories-prix', wrap(async (_req, res) => {
+  const { rows } = await db.query('SELECT * FROM categories_prix WHERE actif=TRUE ORDER BY ordre,libelle');
   ok(res, rows);
+}));
+
+// PUT /produits/:id/prix — remplace toutes les catégories de prix + paliers d'un produit
+produitsRouter.put('/:id/prix', requirePerm('produits'), wrap(async (req, res) => {
+  const produit_id = +req.params.id;
+  const categories: any[] = req.body.categories ?? [];
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Supprimer les anciens prix (CASCADE supprime aussi les paliers)
+    await client.query('DELETE FROM produits_prix WHERE produit_id=$1', [produit_id]);
+    for (const cat of categories) {
+      if (!cat.categorie_prix_id || cat.prix == null) continue;
+      const { rows: [pp] } = await client.query(
+        `INSERT INTO produits_prix (produit_id,categorie_prix_id,prix) VALUES ($1,$2,$3) RETURNING id`,
+        [produit_id, cat.categorie_prix_id, cat.prix]
+      );
+      for (const pl of (cat.paliers ?? [])) {
+        if (!pl.qte_min || pl.prix == null) continue;
+        await client.query(
+          `INSERT INTO prix_paliers (produit_prix_id,qte_min,qte_max,prix) VALUES ($1,$2,$3,$4)`,
+          [pp.id, pl.qte_min, pl.qte_max ?? null, pl.prix]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    const { rows } = await db.query(
+      `SELECT pp.*,cp.code,cp.libelle,cp.ordre,
+         (SELECT COALESCE(JSON_AGG(pl ORDER BY pl.qte_min),'[]'::json) FROM prix_paliers pl WHERE pl.produit_prix_id=pp.id) AS paliers
+       FROM produits_prix pp JOIN categories_prix cp ON cp.id=pp.categorie_prix_id
+       WHERE pp.produit_id=$1 AND pp.actif=TRUE ORDER BY cp.ordre`,
+      [produit_id]
+    );
+    ok(res, rows);
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
 }));
 
 // ─── CLIENTS ─────────────────────────────────────────────────

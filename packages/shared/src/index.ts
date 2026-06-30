@@ -50,17 +50,33 @@ export interface LoginResponse {
 }
 
 // ─── PRODUITS ────────────────────────────────────────────────
-// ─── PALIERS DE PRIX ─────────────────────────────────────────
+// ─── CATÉGORIES DE PRIX & PALIERS ────────────────────────────
+export interface CategoriePrix {
+  id:      number;
+  code:    string;
+  libelle: string;
+  ordre:   number;
+  actif:   boolean;
+}
+
 export interface PrixPalier {
-  id?:        number;
-  produit_id?: number;
-  libelle:    string;
-  qte_min:    number;
-  qte_max?:   number | null;
-  prix:       number;
-  type_vente: 'gros' | 'detail' | 'tous';
-  actif?:     boolean;
-  ordre?:     number;
+  id?:              number;
+  produit_prix_id?: number;
+  qte_min:          number;
+  qte_max?:         number | null;
+  prix:             number;
+}
+
+export interface ProduitPrix {
+  id?:               number;
+  produit_id?:       number;
+  categorie_prix_id: number;
+  code?:             string;
+  libelle?:          string;
+  ordre?:            number;
+  prix:              number;
+  actif?:            boolean;
+  paliers:           PrixPalier[];
 }
 
 export interface Produit {
@@ -86,8 +102,8 @@ export interface Produit {
   prix_modifiable?: boolean;  // prix saisi à la caisse (pesée)
   gere_peremption?: boolean;
   gere_lot?:        boolean;
-  facteur_gros?:    number;   // unités de base par conditionnement gros
-  paliers?:         PrixPalier[];
+  facteur_gros?:      number;
+  categories_prix?:   ProduitPrix[];
 }
 
 // ─── Unité de mesure (référentiel) ────────────────────────────
