@@ -534,17 +534,31 @@ rapportsRouter.get('/comparaison', wrap(async (req, res) => {
   
   const [mois_courant, mois_precedent, meme_mois_ln, tendance] = await Promise.all([
     db.query(`
-      SELECT COALESCE(SUM(total_ttc),0) ca, 
-        ROUND(COALESCE(SUM(total_ttc-(SELECT COALESCE(SUM(vl2.quantite*p2.prix_achat),0) FROM ventes_lignes vl2 JOIN produits p2 ON p2.id=vl2.produit_id WHERE vl2.vente_id=v.id))/NULLIF(SUM(total_ttc),0)*100,0),1) marge,
+      SELECT COALESCE(SUM(v.total_ttc),0) ca,
+        ROUND(COALESCE(
+          (SUM(v.total_ttc) - (
+            SELECT COALESCE(SUM(vl.quantite*p.prix_achat),0)
+            FROM ventes_lignes vl
+            JOIN produits p  ON p.id=vl.produit_id
+            JOIN ventes v2   ON v2.id=vl.vente_id
+            WHERE EXTRACT(YEAR FROM v2.date_vente)=$1 AND EXTRACT(MONTH FROM v2.date_vente)=$2
+          )) / NULLIF(SUM(v.total_ttc),0) * 100, 0), 1) marge,
         COUNT(*) nb_ventes
       FROM ventes v
-      WHERE EXTRACT(YEAR FROM date_vente)=$1 AND EXTRACT(MONTH FROM date_vente)=$2
+      WHERE EXTRACT(YEAR FROM v.date_vente)=$1 AND EXTRACT(MONTH FROM v.date_vente)=$2
     `, [annee, mois]),
     db.query(`
-      SELECT COALESCE(SUM(total_ttc),0) ca, COUNT(*) nb_ventes,
-        ROUND(COALESCE(SUM(total_ttc-(SELECT COALESCE(SUM(vl2.quantite*p2.prix_achat),0) FROM ventes_lignes vl2 JOIN produits p2 ON p2.id=vl2.produit_id WHERE vl2.vente_id=v.id))/NULLIF(SUM(total_ttc),0)*100,0),1) marge
+      SELECT COALESCE(SUM(v.total_ttc),0) ca, COUNT(*) nb_ventes,
+        ROUND(COALESCE(
+          (SUM(v.total_ttc) - (
+            SELECT COALESCE(SUM(vl.quantite*p.prix_achat),0)
+            FROM ventes_lignes vl
+            JOIN produits p  ON p.id=vl.produit_id
+            JOIN ventes v2   ON v2.id=vl.vente_id
+            WHERE EXTRACT(YEAR FROM v2.date_vente)=$1 AND EXTRACT(MONTH FROM v2.date_vente)=$2
+          )) / NULLIF(SUM(v.total_ttc),0) * 100, 0), 1) marge
       FROM ventes v
-      WHERE EXTRACT(YEAR FROM date_vente)=$1 AND EXTRACT(MONTH FROM date_vente)=$2
+      WHERE EXTRACT(YEAR FROM v.date_vente)=$1 AND EXTRACT(MONTH FROM v.date_vente)=$2
     `, [annee_prec, mois_prec]),
     db.query(`
       SELECT COALESCE(SUM(total_ttc),0) ca FROM ventes
