@@ -643,7 +643,7 @@ rapportsRouter.get('/previsions', wrap(async (req, res) => {
         SUM(total_ttc) ca_moyen,
         ROUND(SUM(total_ttc)/(SELECT AVG(ca) FROM (SELECT SUM(total_ttc) ca FROM ventes v2 GROUP BY DATE_TRUNC('month',v2.date_vente)) sub)*100) coefficient
       FROM ventes GROUP BY to_char(date_trunc('month',date_vente),'Mon')
-      ORDER BY EXTRACT(MONTH FROM date_trunc('month',date_vente))
+      ORDER BY MIN(EXTRACT(MONTH FROM date_vente))
     `),
     db.query(`
       SELECT 
