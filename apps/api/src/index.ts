@@ -28,6 +28,18 @@ app.use(express.json({ limit: '5mb' })); // logos base64 (UI: max 2 Mo + ~33% en
 app.use('/api/auth', authRouter);
 app.get('/api/health', (_, res) => res.json({ status: 'ok', version: '2.0', ts: new Date() }));
 
+// Identité publique de la société (page de connexion) — champs non sensibles uniquement
+app.get('/api/societe/public', async (_req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT nom, raison_sociale, logo_url FROM societe_parametres ORDER BY id DESC LIMIT 1`
+    );
+    res.json({ success: true, data: rows[0] ?? { nom: 'StoreBox' } });
+  } catch {
+    res.json({ success: true, data: { nom: 'StoreBox' } });
+  }
+});
+
 // ── Protégées
 app.use('/api', requireAuth);
 app.use('/api/referentiels', referentielsRouter);

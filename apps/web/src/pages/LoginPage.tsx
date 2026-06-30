@@ -59,7 +59,7 @@ export default function LoginPage() {
   }, [user, navigate]);
 
   useEffect(() => {
-    fetch('/api/societe')
+    fetch('/api/societe/public')
       .then(r => r.json())
       .then(j => { if (j.success && j.data) setSociete(j.data); })
       .catch(() => {});
