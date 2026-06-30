@@ -50,6 +50,19 @@ export interface LoginResponse {
 }
 
 // ─── PRODUITS ────────────────────────────────────────────────
+// ─── PALIERS DE PRIX ─────────────────────────────────────────
+export interface PrixPalier {
+  id?:        number;
+  produit_id?: number;
+  libelle:    string;
+  qte_min:    number;
+  qte_max?:   number | null;
+  prix:       number;
+  type_vente: 'gros' | 'detail' | 'tous';
+  actif?:     boolean;
+  ordre?:     number;
+}
+
 export interface Produit {
   id:           number;
   reference:    string;
@@ -74,6 +87,7 @@ export interface Produit {
   gere_peremption?: boolean;
   gere_lot?:        boolean;
   facteur_gros?:    number;   // unités de base par conditionnement gros
+  paliers?:         PrixPalier[];
 }
 
 // ─── Unité de mesure (référentiel) ────────────────────────────

@@ -74,13 +74,32 @@ export default function VentesPage() {
     return { brut, sousTotal, tvaMontant, totalTtc, solde };
   }, [lignes, remisePct, tvaPct, paiementImmed]);
 
-  const setLigne = (i: number, k: keyof Ligne, v: string | number) =>
-    setLignes(ls => ls.map((l, idx) => idx === i ? { ...l, [k]: v } : l));
+  const getPrixPalier = (p: Produit, qte: number, tv: 'gros' | 'detail'): number | null => {
+    const applicable = (p.paliers ?? [])
+      .filter(pp => pp.type_vente === 'tous' || pp.type_vente === tv)
+      .filter(pp => qte >= Number(pp.qte_min) && (pp.qte_max == null || qte <= Number(pp.qte_max)))
+      .sort((a, b) => Number(b.qte_min) - Number(a.qte_min));
+    return applicable.length > 0 ? Number(applicable[0].prix) : null;
+  };
+
+  const setLigne = (i: number, k: keyof Ligne, v: string | number) => {
+    setLignes(ls => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      if (k === 'quantite') {
+        const p = (produits ?? []).find(pr => pr.id === l.produit_id);
+        const prixPalier = p ? getPrixPalier(p, Number(v), typeV) : null;
+        return { ...l, quantite: Number(v), ...(prixPalier != null ? { prix_unitaire: prixPalier } : {}) };
+      }
+      return { ...l, [k]: v };
+    }));
+  };
 
   const choisirProduit = (i: number, produitId: number) => {
     const p = (produits ?? []).find(p => p.id === produitId);
     if (!p) return;
-    const prix = typeV === 'gros' ? p.prix_gros : p.prix_detail;
+    const qte = lignes[i]?.quantite ?? 1;
+    const prixPalier = getPrixPalier(p, qte, typeV);
+    const prix = prixPalier ?? (typeV === 'gros' ? p.prix_gros : p.prix_detail);
     setLignes(ls => ls.map((l, idx) => idx === i
       ? { ...l, produit_id: p.id, designation: p.designation, prix_unitaire: prix }
       : l

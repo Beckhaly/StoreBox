@@ -51,7 +51,8 @@ produitsRouter.get('/', wrap(async (req, res) => {
     ? `LEFT JOIN stocks s ON s.produit_id=p.id AND s.magasin_id=${magasin_id}`
     : `LEFT JOIN (SELECT produit_id, SUM(quantite) quantite, MIN(stock_alerte) stock_alerte FROM stocks GROUP BY produit_id) s ON s.produit_id=p.id`;
   let q = `SELECT p.*,COALESCE(s.quantite,0) AS stock,m.nom marque,m.id marque_id_sel,c.libelle categorie,c.id categorie_id_sel,
-      u.code AS unite_code, u.libelle AS unite_libelle, u.decimales AS unite_decimales
+      u.code AS unite_code, u.libelle AS unite_libelle, u.decimales AS unite_decimales,
+      (SELECT COALESCE(JSON_AGG(pp ORDER BY pp.qte_min),'[]'::json) FROM prix_paliers pp WHERE pp.produit_id=p.id AND pp.actif=TRUE) AS paliers
     FROM produits p
     ${stockJoin}
     LEFT JOIN marques m ON m.id=p.marque_id
@@ -94,6 +95,24 @@ produitsRouter.put('/:id', requirePerm('produits'), wrap(async (req, res) => {
 produitsRouter.delete('/:id', requirePerm('produits'), wrap(async (req, res) => {
   await db.query(`UPDATE produits SET actif=FALSE,updated_at=NOW() WHERE id=$1`, [req.params.id]);
   ok(res, { id: +req.params.id });
+}));
+
+// PUT /produits/:id/paliers — remplace tous les paliers d'un produit
+produitsRouter.put('/:id/paliers', requirePerm('produits'), wrap(async (req, res) => {
+  const produit_id = +req.params.id;
+  const paliers: any[] = req.body.paliers ?? [];
+  await db.query('DELETE FROM prix_paliers WHERE produit_id=$1', [produit_id]);
+  for (let i = 0; i < paliers.length; i++) {
+    const p = paliers[i];
+    if (!p.prix || !p.qte_min) continue;
+    await db.query(
+      `INSERT INTO prix_paliers (produit_id,libelle,qte_min,qte_max,prix,type_vente,ordre)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [produit_id, p.libelle ?? '', p.qte_min, p.qte_max || null, p.prix, p.type_vente ?? 'tous', i]
+    );
+  }
+  const { rows } = await db.query('SELECT * FROM prix_paliers WHERE produit_id=$1 ORDER BY qte_min', [produit_id]);
+  ok(res, rows);
 }));
 
 // ─── CLIENTS ─────────────────────────────────────────────────
