@@ -43,6 +43,8 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
+interface SocietePublic { nom?: string; raison_sociale?: string; logo_url?: string; }
+
 export default function LoginPage() {
   const { login, loading, error, user } = useAuth();
   const navigate = useNavigate();
@@ -50,10 +52,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPw,   setShowPw]   = useState(false);
   const [focused,  setFocused]  = useState<string | null>(null);
+  const [societe,  setSociete]  = useState<SocietePublic | null>(null);
 
   useEffect(() => {
     if (user) navigate('/', { replace: true });
   }, [user, navigate]);
+
+  useEffect(() => {
+    fetch('/api/societe')
+      .then(r => r.json())
+      .then(j => { if (j.success && j.data) setSociete(j.data); })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,6 +154,29 @@ export default function LoginPage() {
         </div>
 
         <div className="w-full max-w-[400px]">
+          {/* Logo + nom de la société */}
+          {societe && (
+            <div className="flex flex-col items-center mb-8">
+              {societe.logo_url ? (
+                <img
+                  src={societe.logo_url}
+                  alt={societe.nom ?? 'Logo'}
+                  className="h-16 w-auto object-contain mb-3"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-2xl bg-slate-900 flex items-center justify-center mb-3">
+                  <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7">
+                    <rect x="5" y="1" width="14" height="22" rx="3" fill="white"/>
+                    <circle cx="12" cy="19.5" r="1.5" fill="#1A1917"/>
+                  </svg>
+                </div>
+              )}
+              <div className="text-lg font-bold text-slate-900 leading-tight text-center">
+                {societe.raison_sociale ?? societe.nom}
+              </div>
+            </div>
+          )}
+
           {/* Titre */}
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-slate-900 mb-1">Bon retour 👋</h2>
