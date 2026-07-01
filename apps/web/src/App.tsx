@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
-import { useAuth } from './hooks/useAuth';
+import { useAuth, useCan } from './hooks/useAuth';
 import { AppLayout } from './components/layout/AppLayout';
+import type { PermissionModule } from '@storebox/shared';
 
 // Pages
 import LoginPage      from './pages/LoginPage';
@@ -40,6 +41,30 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return children;
 }
 
+// Écran d'accès refusé (droit manquant)
+function AccessDenied() {
+  return (
+    <div className="flex-1 flex items-center justify-center p-8">
+      <div className="text-center max-w-sm">
+        <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-red-50 flex items-center justify-center">
+          <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7 text-red-500">
+            <rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.6"/>
+            <path d="M8 10V7a4 4 0 018 0v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+        </div>
+        <h2 className="text-lg font-bold text-slate-900 mb-1">Accès refusé</h2>
+        <p className="text-sm text-slate-500">Vous n'avez pas les droits nécessaires pour cette section. Contactez votre administrateur.</p>
+      </div>
+    </div>
+  );
+}
+
+// Garde de droit : bloque l'accès direct si le module n'est pas autorisé
+function Guard({ perm, children }: { perm: PermissionModule | 'admin'; children: JSX.Element }) {
+  const can = useCan();
+  return can(perm) ? children : <AccessDenied />;
+}
+
 function PageLoader() {
   return (
     <div className="flex-1 flex items-center justify-center">
@@ -63,28 +88,28 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<DashboardPage />} />
-        <Route path="produits"     element={<Suspense fallback={<PageLoader />}><ProduitsPage /></Suspense>} />
-        <Route path="clients"      element={<Suspense fallback={<PageLoader />}><ClientsPage /></Suspense>} />
-        <Route path="ventes"       element={<Suspense fallback={<PageLoader />}><VentesPage /></Suspense>} />
-        <Route path="creances"     element={<CreancesPage />} />
-        <Route path="dettes"       element={<Suspense fallback={<PageLoader />}><DettesPage /></Suspense>} />
-        <Route path="echeances"    element={<Suspense fallback={<PageLoader />}><EcheancesPage /></Suspense>} />
-        <Route path="fournisseurs" element={<Suspense fallback={<PageLoader />}><FournisseursPage /></Suspense>} />
-        <Route path="achats"       element={<Suspense fallback={<PageLoader />}><AchatsPage /></Suspense>} />
-        <Route path="rapports"     element={<Suspense fallback={<PageLoader />}><RapportsPage /></Suspense>} />
-        <Route path="devis"        element={<Suspense fallback={<PageLoader />}><DevisPage /></Suspense>} />
-        <Route path="retours"      element={<Suspense fallback={<PageLoader />}><RetoursPage /></Suspense>} />
-        <Route path="stock"        element={<Suspense fallback={<PageLoader />}><StockPage /></Suspense>} />
-        <Route path="lots"         element={<Suspense fallback={<PageLoader />}><LotsPage /></Suspense>} />
-        <Route path="bons-commande" element={<Suspense fallback={<PageLoader />}><BonCommandePage /></Suspense>} />
-        <Route path="depenses"      element={<Suspense fallback={<PageLoader />}><DepensesPage /></Suspense>} />
-        <Route path="magasins"     element={<Suspense fallback={<PageLoader />}><MagasinsPage /></Suspense>} />
-        <Route path="caisse"         element={<Suspense fallback={<PageLoader />}><CaissePage /></Suspense>} />
-        <Route path="caisse/sessions" element={<Suspense fallback={<PageLoader />}><CaisseSessionsPage /></Suspense>} />
-        <Route path="admin"        element={<Suspense fallback={<PageLoader />}><AdminPage /></Suspense>} />
-        <Route path="admin/referentiels" element={<Suspense fallback={<PageLoader />}><AdminReferentielsPage /></Suspense>} />
-        <Route path="admin/societe" element={<Suspense fallback={<PageLoader />}><AdminSocietePage /></Suspense>} />
+        <Route index element={<Guard perm="dashboard"><DashboardPage /></Guard>} />
+        <Route path="produits"     element={<Guard perm="produits"><Suspense fallback={<PageLoader />}><ProduitsPage /></Suspense></Guard>} />
+        <Route path="clients"      element={<Guard perm="clients"><Suspense fallback={<PageLoader />}><ClientsPage /></Suspense></Guard>} />
+        <Route path="ventes"       element={<Guard perm="ventes"><Suspense fallback={<PageLoader />}><VentesPage /></Suspense></Guard>} />
+        <Route path="creances"     element={<Guard perm="creances"><CreancesPage /></Guard>} />
+        <Route path="dettes"       element={<Guard perm="dettes"><Suspense fallback={<PageLoader />}><DettesPage /></Suspense></Guard>} />
+        <Route path="echeances"    element={<Guard perm="echeances"><Suspense fallback={<PageLoader />}><EcheancesPage /></Suspense></Guard>} />
+        <Route path="fournisseurs" element={<Guard perm="fournisseurs"><Suspense fallback={<PageLoader />}><FournisseursPage /></Suspense></Guard>} />
+        <Route path="achats"       element={<Guard perm="achats"><Suspense fallback={<PageLoader />}><AchatsPage /></Suspense></Guard>} />
+        <Route path="rapports"     element={<Guard perm="rapports"><Suspense fallback={<PageLoader />}><RapportsPage /></Suspense></Guard>} />
+        <Route path="devis"        element={<Guard perm="devis"><Suspense fallback={<PageLoader />}><DevisPage /></Suspense></Guard>} />
+        <Route path="retours"      element={<Guard perm="retours"><Suspense fallback={<PageLoader />}><RetoursPage /></Suspense></Guard>} />
+        <Route path="stock"        element={<Guard perm="stock"><Suspense fallback={<PageLoader />}><StockPage /></Suspense></Guard>} />
+        <Route path="lots"         element={<Guard perm="stock"><Suspense fallback={<PageLoader />}><LotsPage /></Suspense></Guard>} />
+        <Route path="bons-commande" element={<Guard perm="commandes"><Suspense fallback={<PageLoader />}><BonCommandePage /></Suspense></Guard>} />
+        <Route path="depenses"      element={<Guard perm="depenses"><Suspense fallback={<PageLoader />}><DepensesPage /></Suspense></Guard>} />
+        <Route path="magasins"     element={<Guard perm="admin"><Suspense fallback={<PageLoader />}><MagasinsPage /></Suspense></Guard>} />
+        <Route path="caisse"         element={<Guard perm="caisse"><Suspense fallback={<PageLoader />}><CaissePage /></Suspense></Guard>} />
+        <Route path="caisse/sessions" element={<Guard perm="caisse"><Suspense fallback={<PageLoader />}><CaisseSessionsPage /></Suspense></Guard>} />
+        <Route path="admin"        element={<Guard perm="admin"><Suspense fallback={<PageLoader />}><AdminPage /></Suspense></Guard>} />
+        <Route path="admin/referentiels" element={<Guard perm="admin"><Suspense fallback={<PageLoader />}><AdminReferentielsPage /></Suspense></Guard>} />
+        <Route path="admin/societe" element={<Guard perm="admin"><Suspense fallback={<PageLoader />}><AdminSocietePage /></Suspense></Guard>} />
         <Route path="*"            element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -6,6 +6,13 @@ import { db } from '../lib/db';
 import { ok, fail, wrap } from '../lib/helpers';
 import { requireAuth } from '../middleware/auth';
 import { spAuthLogin } from '../lib/sp';
+import { effectivePerms } from '@storebox/shared';
+
+// Récupère les surcharges de droits individuelles d'un utilisateur (JSONB)
+async function getOverride(userId: number) {
+  const { rows } = await db.query('SELECT permissions_override FROM utilisateurs WHERE id=$1', [userId]);
+  return rows[0]?.permissions_override ?? null;
+}
 
 const router = Router();
 const JWT_SECRET     = process.env.JWT_SECRET || 'storebox-secret-change-in-prod';
@@ -70,8 +77,10 @@ router.post('/login', wrap(async (req, res) => {
   const magasin_ids  = user.magasin_ids  ?? [];
   const magasin_noms = user.magasin_noms ?? [];
 
+  const perms = effectivePerms(user.permissions, await getOverride(user.id));
+
   const payload = { sub: user.id, email: user.email, nom: user.nom, prenom: user.prenom,
-                    role: user.role_code, perms: user.permissions, magasin_ids };
+                    role: user.role_code, perms, magasin_ids };
 
   const jti  = genJti();
   const rJti = genJti();
@@ -88,7 +97,7 @@ router.post('/login', wrap(async (req, res) => {
     token, refreshToken, expiresIn: JWT_EXPIRES,
     user: { id: user.id, code: user.code, nom: user.nom, prenom: user.prenom,
             email: user.email, telephone: user.telephone,
-            role: user.role_code, roleLabel: user.role_libelle, permissions: user.permissions,
+            role: user.role_code, roleLabel: user.role_libelle, permissions: perms,
             magasin_ids, magasin_noms },
   });
 }));
@@ -117,9 +126,10 @@ router.post('/refresh', wrap(async (req, res) => {
   if (!users.length) return fail(res, 'Utilisateur introuvable', 401);
 
   const u = users[0];
+  const perms = effectivePerms(u.permissions, u.permissions_override);
   const jti   = genJti();
   const token = jwt.sign({ sub: u.id, email: u.email, nom: u.nom, prenom: u.prenom,
-                           role: u.role_code, perms: u.permissions,
+                           role: u.role_code, perms,
                            magasin_ids: u.magasin_ids ?? [], jti }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
   await saveSession(u.id, jti, 8, req.ip ?? '', req.headers['user-agent'] ?? '');
   ok(res, { token, expiresIn: JWT_EXPIRES });
@@ -142,7 +152,7 @@ router.post('/logout', wrap(async (req, res) => {
 router.get('/me', requireAuth, wrap(async (req, res) => {
   const { rows } = await db.query(
     `SELECT u.id, u.code, u.nom, u.prenom, u.email, u.telephone, u.derniere_cnx,
-            vm.magasin_ids, vm.magasin_noms,
+            u.permissions_override, vm.magasin_ids, vm.magasin_noms,
             r.code AS role, r.libelle AS role_libelle, r.permissions
      FROM utilisateurs u
      JOIN roles r ON r.id=u.role_id
@@ -151,7 +161,7 @@ router.get('/me', requireAuth, wrap(async (req, res) => {
     [req.user!.sub]
   );
   if (!rows.length) return fail(res, 'Introuvable', 404);
-  ok(res, rows[0]);
+  ok(res, { ...rows[0], permissions: effectivePerms(rows[0].permissions, rows[0].permissions_override) });
 }));
 
 // POST /api/auth/change-password

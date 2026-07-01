@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Utilisateur, LoginPayload, LoginResponse } from '@storebox/shared';
+import { Utilisateur, LoginPayload, LoginResponse, PermissionModule, hasPerm } from '@storebox/shared';
 import { api, storage } from '../lib/api';
 
 interface AuthState {
@@ -51,3 +51,10 @@ export const useAuth = create<AuthState>((set, get) => ({
     set({ user: null, token: null });
   },
 }));
+
+// Hook de vérification de droit : can('ventes'), can('paiements','write')…
+export function useCan() {
+  const user = useAuth(s => s.user);
+  return (mod: PermissionModule | 'admin', level: 'read' | 'write' = 'read') =>
+    hasPerm(user?.permissions, mod, level);
+}

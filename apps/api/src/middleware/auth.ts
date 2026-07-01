@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../lib/db';
-import { Permissions } from '@storebox/shared';
+import { Permissions, PermissionModule, hasPerm } from '@storebox/shared';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'storebox-secret-change-in-prod';
 
@@ -44,64 +44,42 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export function requirePerm(perm: keyof Permissions) {
+// Normalise req.user.perms (peut être une string JSON venant du mock DB)
+function readPerms(req: Request): Permissions {
+  let p = req.user?.perms as any;
+  if (typeof p === 'string') {
+    try {
+      const parsed = JSON.parse(p);
+      if (Array.isArray(parsed)) {
+        return (parsed.includes('admin') || parsed.includes('write_all') || parsed.includes('delete_all'))
+          ? { all: true } : {};
+      }
+      return parsed;
+    } catch {
+      return {};
+    }
+  }
+  return (p ?? {}) as Permissions;
+}
+
+// Exige un accès (lecture par défaut) à un module. requirePerm('ventes','write') pour l'écriture.
+export function requirePerm(perm: PermissionModule | 'admin', level: 'read' | 'write' = 'read') {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ success: false, error: 'Non authentifié' });
-    let p = req.user.perms as any;
-
-    // Handle case where perms is a string (from mock DB)
-    if (typeof p === 'string') {
-      try {
-        const parsed = JSON.parse(p);
-        // Handle old permission format from mock DB
-        if (Array.isArray(parsed)) {
-          // Old format: ['read_all', 'write_all', 'delete_all', 'admin']
-          // Map to new format
-          if (parsed.includes('admin') || parsed.includes('write_all') || parsed.includes('delete_all')) {
-            p = { all: true };
-          } else {
-            p = {};
-          }
-        } else {
-          p = parsed;
-        }
-      } catch {
-        return res.status(403).json({ success: false, error: `Permission '${perm}' requise` });
-      }
-    }
-
-    // Check permissions: admin (all) grants everything
-    if (p.all) return next();
-    if (p[perm] === true || p[perm] === 'read') return next();
-
+    if (hasPerm(readPerms(req), perm, level)) return next();
     return res.status(403).json({ success: false, error: `Permission '${perm}' requise` });
   };
+}
+
+// Raccourci : exige l'écriture sur un module
+export function requireWrite(perm: PermissionModule | 'admin') {
+  return requirePerm(perm, 'write');
 }
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ success: false, error: 'Non authentifié' });
-    let p = req.user.perms as any;
-
-    // Handle case where perms is a string (from mock DB)
-    if (typeof p === 'string') {
-      try {
-        const parsed = JSON.parse(p);
-        if (Array.isArray(parsed)) {
-          if (parsed.includes('admin') || parsed.includes('write_all')) {
-            p = { all: true };
-          } else {
-            p = {};
-          }
-        } else {
-          p = parsed;
-        }
-      } catch {
-        return res.status(403).json({ success: false, error: 'Rôle insuffisant' });
-      }
-    }
-
-    if (p.all) return next();
+    if (readPerms(req).all) return next();
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Rôle insuffisant' });
     }

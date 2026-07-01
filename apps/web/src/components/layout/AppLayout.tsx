@@ -1,53 +1,55 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../hooks/useAuth';
+import { useAuth, useCan } from '../../hooks/useAuth';
 import { useMagasin } from '../../hooks/useMagasin';
 import { SearchPalette } from '../ui/SearchPalette';
 import { api } from '../../lib/api';
-import type { Magasin, SocieteParametres, Utilisateur } from '@storebox/shared';
+import type { Magasin, SocieteParametres, Utilisateur, PermissionModule } from '@storebox/shared';
 
-const NAV = [
+type NavItemDef = { to: string; label: string; icon: string; alert?: boolean; perm?: PermissionModule };
+
+const NAV: { section: string; items: NavItemDef[] }[] = [
   {
     section: 'Commercial',
     items: [
-      { to: '/',             label: 'Tableau de bord',    icon: 'grid' },
-      { to: '/produits',     label: 'Produits & stock',   icon: 'box' },
-      { to: '/clients',      label: 'Clients',            icon: 'users' },
-      { to: '/ventes',       label: 'Ventes',             icon: 'cart' },
-      { to: '/devis',        label: 'Devis',              icon: 'devis' },
+      { to: '/',             label: 'Tableau de bord',    icon: 'grid',  perm: 'dashboard' },
+      { to: '/produits',     label: 'Produits & stock',   icon: 'box',   perm: 'produits' },
+      { to: '/clients',      label: 'Clients',            icon: 'users', perm: 'clients' },
+      { to: '/ventes',       label: 'Ventes',             icon: 'cart',  perm: 'ventes' },
+      { to: '/devis',        label: 'Devis',              icon: 'devis', perm: 'devis' },
     ],
   },
   {
     section: 'Caisse',
     items: [
-      { to: '/caisse',          label: 'Point de vente',     icon: 'caisse' },
-      { to: '/caisse/sessions', label: 'Sessions de caisse', icon: 'calendar' },
+      { to: '/caisse',          label: 'Point de vente',     icon: 'caisse',   perm: 'caisse' },
+      { to: '/caisse/sessions', label: 'Sessions de caisse', icon: 'calendar', perm: 'caisse' },
     ],
   },
   {
     section: 'Stock',
     items: [
-      { to: '/stock',        label: 'Mouvements stock',   icon: 'warehouse' },
-      { to: '/lots',         label: 'Lots & péremption',  icon: 'calendar' },
-      { to: '/bons-commande',label: 'Bons de commande',   icon: 'bc' },
-      { to: '/retours',      label: 'Retours clients',    icon: 'return' },
+      { to: '/stock',        label: 'Mouvements stock',   icon: 'warehouse', perm: 'stock' },
+      { to: '/lots',         label: 'Lots & péremption',  icon: 'calendar',  perm: 'stock' },
+      { to: '/bons-commande',label: 'Bons de commande',   icon: 'bc',        perm: 'commandes' },
+      { to: '/retours',      label: 'Retours clients',    icon: 'return',    perm: 'retours' },
     ],
   },
   {
     section: 'Finance',
     items: [
-      { to: '/creances',     label: 'Créances clients',    icon: 'invoice',  alert: true },
-      { to: '/dettes',       label: 'Dettes fournisseurs', icon: 'arrow-up', alert: true },
-      { to: '/echeances',    label: 'Échéances',           icon: 'calendar' },
-      { to: '/fournisseurs', label: 'Fournisseurs',        icon: 'building' },
-      { to: '/achats',       label: 'Achats fournisseurs', icon: 'import' },
-      { to: '/depenses',     label: 'Dépenses',            icon: 'expense' },
+      { to: '/creances',     label: 'Créances clients',    icon: 'invoice',  alert: true, perm: 'creances' },
+      { to: '/dettes',       label: 'Dettes fournisseurs', icon: 'arrow-up', alert: true, perm: 'dettes' },
+      { to: '/echeances',    label: 'Échéances',           icon: 'calendar', perm: 'echeances' },
+      { to: '/fournisseurs', label: 'Fournisseurs',        icon: 'building', perm: 'fournisseurs' },
+      { to: '/achats',       label: 'Achats fournisseurs', icon: 'import',   perm: 'achats' },
+      { to: '/depenses',     label: 'Dépenses',            icon: 'expense',  perm: 'depenses' },
     ],
   },
   {
     section: 'Analyse',
     items: [
-      { to: '/rapports',     label: 'Rapports & stats',   icon: 'chart' },
+      { to: '/rapports',     label: 'Rapports & stats',   icon: 'chart', perm: 'rapports' },
     ],
   },
 ];
@@ -115,6 +117,11 @@ function NavItem({ to, icon, label, onClick }: { to: string; icon: string; label
 }
 
 function SidebarContent({ user, initiales, onSearchOpen, onNavClick, onLogout, magasins, magasinActif, peutChoisir, onMagasinChange }: SidebarContentProps) {
+  const can = useCan();
+  // On ne garde que les entrées autorisées ; les sections vides disparaissent.
+  const navGroups = NAV
+    .map(g => ({ ...g, items: g.items.filter(it => !it.perm || can(it.perm)) }))
+    .filter(g => g.items.length > 0);
   return (
     <>
       {/* Logo */}
@@ -150,7 +157,7 @@ function SidebarContent({ user, initiales, onSearchOpen, onNavClick, onLogout, m
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto pb-2">
-        {NAV.map(group => (
+        {navGroups.map(group => (
           <div key={group.section} className="mb-1">
             <div className="px-4 pt-3 pb-1.5 font-mono text-[9.5px] text-[#C4C0BA] uppercase tracking-widest">
               {group.section}

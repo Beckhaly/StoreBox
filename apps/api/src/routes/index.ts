@@ -732,13 +732,47 @@ notifRouter.get('/logs', wrap(async (_, res) => {
 export const adminRouter = Router();
 adminRouter.use(requireRole('admin'));
 adminRouter.get('/roles', wrap(async (_, res) => {
-  const { rows } = await db.query(`SELECT id, code, libelle nom FROM roles ORDER BY id`);
+  const { rows } = await db.query(
+    `SELECT r.id, r.code, r.libelle nom, r.libelle, r.permissions, r.systeme,
+            (SELECT COUNT(*) FROM utilisateurs u WHERE u.role_id=r.id AND u.actif=TRUE)::int nb_users
+     FROM roles r ORDER BY r.systeme DESC, r.id`);
   ok(res, rows);
+}));
+adminRouter.post('/roles', wrap(async (req, res) => {
+  const { code, libelle, permissions } = req.body as { code: string; libelle: string; permissions?: object };
+  if (!code || !libelle) return fail(res, 'code et libelle requis');
+  const slug = String(code).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const { rows } = await db.query(
+    `INSERT INTO roles (code, libelle, permissions, systeme) VALUES ($1,$2,$3,FALSE) RETURNING *`,
+    [slug, libelle, JSON.stringify(permissions ?? {})]);
+  ok(res, rows[0], 201);
+}));
+adminRouter.put('/roles/:id', wrap(async (req, res) => {
+  const { libelle, permissions } = req.body as { libelle?: string; permissions?: object };
+  const updates: string[] = [];
+  const p: unknown[] = [];
+  if (libelle !== undefined)     { p.push(libelle);                    updates.push(`libelle=$${p.length}`); }
+  if (permissions !== undefined) { p.push(JSON.stringify(permissions)); updates.push(`permissions=$${p.length}`); }
+  if (!updates.length) return fail(res, 'Rien à mettre à jour');
+  p.push(req.params.id);
+  const { rows } = await db.query(`UPDATE roles SET ${updates.join(',')} WHERE id=$${p.length} RETURNING *`, p);
+  if (!rows.length) return fail(res, 'Rôle introuvable', 404);
+  ok(res, rows[0]);
+}));
+adminRouter.delete('/roles/:id', wrap(async (req, res) => {
+  const { rows } = await db.query(`SELECT systeme FROM roles WHERE id=$1`, [req.params.id]);
+  if (!rows.length) return fail(res, 'Rôle introuvable', 404);
+  if (rows[0].systeme) return fail(res, 'Rôle système : suppression interdite', 403);
+  const { rows: used } = await db.query(`SELECT 1 FROM utilisateurs WHERE role_id=$1 LIMIT 1`, [req.params.id]);
+  if (used.length) return fail(res, 'Rôle utilisé par des utilisateurs : réaffectez-les d\'abord', 409);
+  await db.query(`DELETE FROM roles WHERE id=$1`, [req.params.id]);
+  ok(res, { id: +req.params.id });
 }));
 adminRouter.get('/utilisateurs', wrap(async (_, res) => {
   const { rows } = await db.query(
     `SELECT u.id,u.code,u.nom,u.prenom,u.email,u.telephone,u.actif,u.derniere_cnx,
-            r.id role_id,r.code role,r.libelle role_nom,
+            u.permissions_override,
+            r.id role_id,r.code role,r.libelle role_nom,r.permissions role_permissions,
             COALESCE(vm.magasin_ids,'{}') magasin_ids,
             COALESCE(vm.magasin_noms,'{}') magasin_noms
      FROM utilisateurs u
@@ -749,14 +783,15 @@ adminRouter.get('/utilisateurs', wrap(async (_, res) => {
 }));
 adminRouter.post('/utilisateurs', wrap(async (req, res) => {
   const bcrypt = await import('bcrypt');
-  const { code,nom,prenom,email,telephone,password,role_id,magasin_ids } = req.body;
+  const { code,nom,prenom,email,telephone,password,role_id,magasin_ids,permissions_override } = req.body;
   const hash = await bcrypt.hash(password, 12);
+  const ov = permissions_override && Object.keys(permissions_override).length ? JSON.stringify(permissions_override) : null;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO utilisateurs (code,nom,prenom,email,telephone,password_hash,role_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [code,nom,prenom,email,telephone,hash,role_id]);
+      `INSERT INTO utilisateurs (code,nom,prenom,email,telephone,password_hash,role_id,permissions_override) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [code,nom,prenom,email,telephone,hash,role_id,ov]);
     const uid = rows[0].id;
     const ids: number[] = Array.isArray(magasin_ids) ? magasin_ids.filter(Boolean) : [];
     if (ids.length) {
@@ -771,13 +806,17 @@ adminRouter.post('/utilisateurs', wrap(async (req, res) => {
 }));
 adminRouter.put('/utilisateurs/:id', wrap(async (req, res) => {
   const bcrypt = await import('bcrypt');
-  const { nom,prenom,email,telephone,role_id,actif,password,magasin_ids } = req.body;
+  const { nom,prenom,email,telephone,role_id,actif,password,magasin_ids,permissions_override } = req.body;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     let q = `UPDATE utilisateurs SET nom=$1,prenom=$2,email=$3,telephone=$4,role_id=$5,actif=$6`;
     const p: unknown[] = [nom,prenom,email,telephone,role_id,actif??true];
     if (password) { p.push(await bcrypt.hash(password, 12)); q += `,password_hash=$${p.length}`; }
+    if (permissions_override !== undefined) {
+      const ov = permissions_override && Object.keys(permissions_override).length ? JSON.stringify(permissions_override) : null;
+      p.push(ov); q += `,permissions_override=$${p.length}`;
+    }
     p.push(req.params.id); q += ` WHERE id=$${p.length}`;
     await client.query(q, p);
     // Remplacer toutes les associations magasins

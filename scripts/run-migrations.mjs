@@ -55,6 +55,7 @@ const ALL_MIGRATIONS = [
   '028_logo_url_text.sql',
   '029_prix_paliers.sql',
   '030_referentiels_normalize.sql',
+  '031_droits.sql',
 ];
 
 // En production (SEED_DEMO != true) on inclut le nettoyage 025 ;

@@ -15,7 +15,7 @@ import {
   objectifsRouter, searchRouter, rapportsAvancesRouter, depensesRouter,
   societeRouter, magasinsRouter,
 } from './routes/index';
-import { requireAuth }   from './middleware/auth';
+import { requireAuth, requirePerm } from './middleware/auth';
 import { errorHandler }  from './middleware/errorHandler';
 import { db }            from './lib/db';
 import { rafraichirConfigNotif } from './services/notifications';
@@ -42,32 +42,35 @@ app.get('/api/societe/public', async (_req, res) => {
 
 // ── Protégées
 app.use('/api', requireAuth);
+// Dépendances partagées (dropdowns, sélecteur magasin) : lecture ouverte à tout
+// utilisateur authentifié ; leurs mutations restent protégées dans chaque routeur.
 app.use('/api/referentiels', referentielsRouter);
 app.use('/api/societe',      societeRouter);
-app.use('/api/dashboard',    dashboardRouter);
-app.use('/api/produits',     produitsRouter);
-app.use('/api/clients',      clientsRouter);
-app.use('/api/ventes',       ventesRouter);
-app.use('/api/creances',     creancesRouter);
-app.use('/api/dettes',       dettesRouter);
-app.use('/api/echeances',    echeancesRouter);
-app.use('/api/paiements',    paiementsRouter);
-app.use('/api/fournisseurs', fournisseursRouter);
-app.use('/api/achats',       achatsRouter);
-app.use('/api/rapports',         rapportsRouter);
-app.use('/api/rapports/avances', rapportsAvancesRouter);
-app.use('/api/devis',            devisRouter);
-app.use('/api/retours',          retoursRouter);
-app.use('/api/bons-commande',    bonCommandeRouter);
-app.use('/api/stock',            stockRouter);
-app.use('/api/objectifs',        objectifsRouter);
-app.use('/api/search',           searchRouter);
-app.use('/api/depenses',         depensesRouter);
-app.use('/api/pdf',              pdfRouter);
-app.use('/api/notifications',notifRouter);
-app.use('/api/admin',        adminRouter);
 app.use('/api/magasins',     magasinsRouter);
-app.use('/api/caisse',       caisseRouter);
+app.use('/api/search',           searchRouter);
+app.use('/api/objectifs',        objectifsRouter);
+app.use('/api/pdf',              pdfRouter);
+app.use('/api/notifications',    notifRouter);
+// Modules-pages : accès verrouillé par droit (lecture minimale requise)
+app.use('/api/dashboard',    requirePerm('dashboard'),    dashboardRouter);
+app.use('/api/produits',     requirePerm('produits'),     produitsRouter);
+app.use('/api/clients',      requirePerm('clients'),      clientsRouter);
+app.use('/api/ventes',       requirePerm('ventes'),       ventesRouter);
+app.use('/api/creances',     requirePerm('creances'),     creancesRouter);
+app.use('/api/dettes',       requirePerm('dettes'),       dettesRouter);
+app.use('/api/echeances',    requirePerm('echeances'),    echeancesRouter);
+app.use('/api/paiements',    requirePerm('paiements'),    paiementsRouter);
+app.use('/api/fournisseurs', requirePerm('fournisseurs'), fournisseursRouter);
+app.use('/api/achats',       requirePerm('achats'),       achatsRouter);
+app.use('/api/rapports',         requirePerm('rapports'), rapportsRouter);
+app.use('/api/rapports/avances', requirePerm('rapports'), rapportsAvancesRouter);
+app.use('/api/devis',            requirePerm('devis'),     devisRouter);
+app.use('/api/retours',          requirePerm('retours'),   retoursRouter);
+app.use('/api/bons-commande',    requirePerm('commandes'), bonCommandeRouter);
+app.use('/api/stock',            requirePerm('stock'),     stockRouter);
+app.use('/api/depenses',         requirePerm('depenses'),  depensesRouter);
+app.use('/api/caisse',       requirePerm('caisse'),        caisseRouter);
+app.use('/api/admin',        adminRouter);
 
 // ── Frontend SPA (Vite) — servi depuis Express sur O2SWITCH
 // Chercher d'abord les fichiers statiques (JS, CSS, images)
