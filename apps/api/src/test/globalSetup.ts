@@ -34,6 +34,7 @@ const MIGRATIONS = [
   '029_prix_paliers.sql',
   '030_referentiels_normalize.sql',
   '031_droits.sql',
+  '032_codes_auto.sql',
 ];
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');

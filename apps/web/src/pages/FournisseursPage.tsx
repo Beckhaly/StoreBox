@@ -107,14 +107,9 @@ export default function FournisseursPage() {
 
   const FormFields = ({ f, s }: { f: typeof VIDE; s: (k: string, v: string) => void }) => (
     <>
-      <FormGrid>
-        <FormRow label="Code" required>
-          <input className="input text-sm font-mono" value={f.code} onChange={e => s('code', e.target.value)} required placeholder="FRS-009" />
-        </FormRow>
-        <FormRow label="Délai paiement (jours)">
-          <input className="input text-sm font-mono" type="number" min="0" value={f.delai_paiement} onChange={e => s('delai_paiement', e.target.value)} />
-        </FormRow>
-      </FormGrid>
+      <FormRow label="Délai paiement (jours)">
+        <input className="input text-sm font-mono" type="number" min="0" value={f.delai_paiement} onChange={e => s('delai_paiement', e.target.value)} />
+      </FormRow>
       <FormRow label="Raison sociale" required>
         <input className="input text-sm" value={f.raison_sociale} onChange={e => s('raison_sociale', e.target.value)} required placeholder="Nom du fournisseur" />
       </FormRow>

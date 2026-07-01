@@ -52,11 +52,6 @@ function UserFormFields({
   const roleName = roles.find(r => String(r.id) === f.role_id)?.nom;
   return (
     <>
-      {!isEdit && (
-        <FormRow label="Code" required>
-          <input className="input text-sm font-mono" value={f.code} onChange={e => s('code', e.target.value)} required placeholder="USR-007" />
-        </FormRow>
-      )}
       <FormGrid>
         <FormRow label="Prénom" required>
           <input className="input text-sm" value={f.prenom} onChange={e => s('prenom', e.target.value)} required />

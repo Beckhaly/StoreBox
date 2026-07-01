@@ -252,9 +252,6 @@ export default function ClientsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Nouveau client" size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           <FormGrid>
-            <FormRow label="Code" required>
-              <input className="input text-sm" value={form.code} onChange={e => set('code', e.target.value)} required placeholder="CLI-001" />
-            </FormRow>
             <FormRow label="Type de client" required>
               <select className="input text-sm" value={form.type_client} onChange={e => set('type_client', e.target.value)}>
                 <option value="grossiste">Grossiste</option>

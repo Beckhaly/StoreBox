@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Spinner, StockBar, toast } from '../components/ui';
-import { Modal, FormRow, FormGrid, FormFooter } from '../components/ui/Modal';
+import { Modal, FormRow, FormFooter } from '../components/ui/Modal';
 import { useApi } from '../hooks/useApi';
 import { Produit, CategoriePrix, ProduitPrix, PrixPalier } from '@storebox/shared';
 import { fcfa, fcfaM } from '../lib/formatters';
@@ -26,17 +26,12 @@ const VIDE = {
 function FormFields({ f, s, refs }: { f: typeof VIDE; s: (k: string, v: string) => void; refs?: Referentiels | null }) {
   return (
     <>
-      <FormGrid>
-        <FormRow label="Référence" required>
-          <input className="input text-sm font-mono" value={f.reference} onChange={e => s('reference', e.target.value)} required placeholder="SAM-A55-256" />
-        </FormRow>
-        <FormRow label="Marque">
-          <select className="input text-sm" value={f.marque_id} onChange={e => s('marque_id', e.target.value)}>
-            <option value="">— Sélectionner —</option>
-            {(refs?.marques ?? []).map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
-          </select>
-        </FormRow>
-      </FormGrid>
+      <FormRow label="Marque">
+        <select className="input text-sm" value={f.marque_id} onChange={e => s('marque_id', e.target.value)}>
+          <option value="">— Sélectionner —</option>
+          {(refs?.marques ?? []).map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+        </select>
+      </FormRow>
       <FormRow label="Désignation" required>
         <input className="input text-sm" value={f.designation} onChange={e => s('designation', e.target.value)} required placeholder="Samsung Galaxy A55 256Go" />
       </FormRow>
