@@ -33,6 +33,7 @@ const DepensesPage     = lazy(() => import('./pages/DepensesPage'));
 const MagasinsPage     = lazy(() => import('./pages/MagasinsPage'));
 const CaissePage         = lazy(() => import('./pages/CaissePage'));
 const CaisseSessionsPage = lazy(() => import('./pages/CaisseSessionsPage'));
+const ProfilePage        = lazy(() => import('./pages/ProfilePage'));
 
 // Garde d'authentification
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -89,6 +90,7 @@ export default function App() {
         }
       >
         <Route index element={<Guard perm="dashboard"><DashboardPage /></Guard>} />
+        <Route path="profil"       element={<Suspense fallback={<PageLoader />}><ProfilePage /></Suspense>} />
         <Route path="produits"     element={<Guard perm="produits"><Suspense fallback={<PageLoader />}><ProduitsPage /></Suspense></Guard>} />
         <Route path="clients"      element={<Guard perm="clients"><Suspense fallback={<PageLoader />}><ClientsPage /></Suspense></Guard>} />
         <Route path="ventes"       element={<Guard perm="ventes"><Suspense fallback={<PageLoader />}><VentesPage /></Suspense></Guard>} />
