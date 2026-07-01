@@ -23,6 +23,8 @@ const REFERENTIELS = {
   // Référentiels produits (marques, catégories) et paiements
   marques: { table: 'marques', perm: 'admin' },
   categories: { table: 'categories', perm: 'admin' },
+  categories_prix: { table: 'categories_prix', perm: 'admin' },
+  categories_depenses: { table: 'categories_depenses', perm: 'admin' },
   moyens_paiement: { table: 'moyens_paiement', perm: 'admin' },
   unites_mesure: { table: 'unites_mesure', perm: 'admin' },
 };
@@ -34,8 +36,6 @@ router.get('/', wrap(async (req, res) => {
   // Tables spéciales sans colonnes actif/ordre
   const simpleTablesqueries: Record<string, string> = {
     moyens_paiement: 'SELECT * FROM moyens_paiement ORDER BY id',
-    categories: 'SELECT * FROM categories ORDER BY code',
-    marques: 'SELECT * FROM marques ORDER BY nom',
   };
 
   for (const [key, ref] of Object.entries(REFERENTIELS)) {
@@ -59,8 +59,6 @@ router.get('/:type/all', requirePerm('admin'), wrap(async (req, res) => {
   // Requêtes personnalisées pour tables sans colonne 'ordre'
   const simpleTablesqueries: Record<string, string> = {
     moyens_paiement: 'SELECT * FROM moyens_paiement ORDER BY id',
-    categories: 'SELECT * FROM categories ORDER BY code',
-    marques: 'SELECT * FROM marques ORDER BY nom',
   };
 
   const query = simpleTablesqueries[ref.table]

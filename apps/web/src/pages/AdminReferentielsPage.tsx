@@ -18,6 +18,10 @@ const REFERENTIEL_TYPES = [
   { key: 'statuts_avoir' as const, label: 'Statuts avoir' },
   { key: 'statuts_reception' as const, label: 'Statuts réception' },
   { key: 'types_paiement' as const, label: 'Types paiement' },
+  { key: 'categories' as const, label: 'Catégories produits' },
+  { key: 'marques' as const, label: 'Marques' },
+  { key: 'categories_prix' as const, label: 'Catégories de prix' },
+  { key: 'categories_depenses' as const, label: 'Catégories de dépenses' },
 ];
 
 export default function AdminReferentielsPage() {

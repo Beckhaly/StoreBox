@@ -576,6 +576,10 @@ export interface AllReferentiels {
   statuts_avoir:              Referentiel[];
   statuts_reception:          Referentiel[];
   types_paiement:             Referentiel[];
+  categories:                 Referentiel[];
+  marques:                    Referentiel[];
+  categories_prix:            Referentiel[];
+  categories_depenses:        Referentiel[];
 }
 
 // ─── PARAMÈTRES SOCIÉTÉ ─────────────────────────────────

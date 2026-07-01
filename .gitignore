@@ -11,3 +11,7 @@ apps/web/dist/
 
 # Archives d'image livrables
 storebox-*.tar.gz
+storebox-*.tar
+
+# Artefacts JS compilés à tort dans les sources TS/TSX (masquent les .tsx au build Vite)
+apps/web/src/**/*.js

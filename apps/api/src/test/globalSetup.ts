@@ -32,6 +32,7 @@ const MIGRATIONS = [
   '027_solde_initial.sql',
   '028_logo_url_text.sql',
   '029_prix_paliers.sql',
+  '030_referentiels_normalize.sql',
 ];
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
