@@ -6,7 +6,7 @@ import { db } from '../lib/db';
 import { ok, fail, wrap } from '../lib/helpers';
 import { requireAuth } from '../middleware/auth';
 import { spAuthLogin } from '../lib/sp';
-import { effectivePerms } from '@storebox/shared';
+import { effectivePerms } from '../lib/perms';
 
 // Récupère les surcharges de droits individuelles d'un utilisateur (JSONB)
 async function getOverride(userId: number) {

@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../lib/db';
-import { Permissions, PermissionModule, hasPerm } from '@storebox/shared';
+import type { Permissions, PermissionModule } from '@storebox/shared';
+import { hasPerm } from '../lib/perms';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'storebox-secret-change-in-prod';
 
