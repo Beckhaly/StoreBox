@@ -15,3 +15,4 @@ storebox-*.tar
 
 # Artefacts JS compilés à tort dans les sources TS/TSX (masquent les .tsx au build Vite)
 apps/web/src/**/*.js
+packages/shared/src/**/*.js
