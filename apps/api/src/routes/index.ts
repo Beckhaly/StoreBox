@@ -25,8 +25,8 @@ dashboardRouter.get('/', wrap(async (req, res) => {
   const mf = magasin_id ? `AND magasin_id=${magasin_id}` : '';
   const [ca, creances, dettes, treso, stock, top, chart] = await Promise.all([
     db.query(`SELECT COALESCE(SUM(total_ttc),0) ca_mois, COUNT(*) nb_ventes FROM ventes WHERE date_vente>=date_trunc('month',CURRENT_DATE) ${mf}`),
-    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN categorie_echeance IN('echu_30j','echu_60j','contentieux') THEN solde_restant END),0) en_retard FROM v_creances_clients ${magasin_id ? `WHERE magasin_id=${magasin_id}` : ''}`),
-    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN date_echeance<=CURRENT_DATE+5 THEN solde_restant END),0) urgent FROM v_dettes_fournisseurs ${magasin_id ? `WHERE magasin_id=${magasin_id}` : ''}`),
+    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN categorie_echeance IN('echu_30j','echu_60j','contentieux') THEN solde_restant END),0) en_retard FROM v_creances_clients ${magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : ''}`),
+    db.query(`SELECT COALESCE(SUM(solde_restant),0) total, COALESCE(SUM(CASE WHEN date_echeance<=CURRENT_DATE+5 THEN solde_restant END),0) urgent FROM v_dettes_fournisseurs ${magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : ''}`),
     db.query(`SELECT COALESCE(SUM(CASE WHEN type_paiement='encaissement' THEN montant END),0) entrees, COALESCE(SUM(CASE WHEN type_paiement='decaissement' THEN montant END),0) sorties FROM paiements WHERE date_paiement>=date_trunc('month',CURRENT_DATE) ${mf}`),
     magasin_id
       ? db.query(`SELECT COUNT(CASE WHEN quantite=0 THEN 1 END) ruptures, COUNT(CASE WHEN alerte_stock AND quantite>0 THEN 1 END) alertes FROM v_stocks WHERE actif=TRUE AND magasin_id=${magasin_id}`)
@@ -51,7 +51,15 @@ produitsRouter.get('/', wrap(async (req, res) => {
     ? `LEFT JOIN stocks s ON s.produit_id=p.id AND s.magasin_id=${magasin_id}`
     : `LEFT JOIN (SELECT produit_id, SUM(quantite) quantite, MIN(stock_alerte) stock_alerte FROM stocks GROUP BY produit_id) s ON s.produit_id=p.id`;
   let q = `SELECT p.*,COALESCE(s.quantite,0) AS stock,m.nom marque,m.id marque_id_sel,c.libelle categorie,c.id categorie_id_sel,
-      u.code AS unite_code, u.libelle AS unite_libelle, u.decimales AS unite_decimales
+      u.code AS unite_code, u.libelle AS unite_libelle, u.decimales AS unite_decimales,
+      (SELECT COALESCE(JSON_AGG(
+         JSON_BUILD_OBJECT('id',pp.id,'categorie_prix_id',pp.categorie_prix_id,
+           'code',cp.code,'libelle',cp.libelle,'ordre',cp.ordre,'prix',pp.prix,
+           'paliers',(SELECT COALESCE(JSON_AGG(pl ORDER BY pl.qte_min),'[]'::json)
+                      FROM prix_paliers pl WHERE pl.produit_prix_id=pp.id))
+         ORDER BY cp.ordre),'[]'::json)
+       FROM produits_prix pp JOIN categories_prix cp ON cp.id=pp.categorie_prix_id
+       WHERE pp.produit_id=p.id AND pp.actif=TRUE) AS categories_prix
     FROM produits p
     ${stockJoin}
     LEFT JOIN marques m ON m.id=p.marque_id
@@ -96,11 +104,53 @@ produitsRouter.delete('/:id', requirePerm('produits'), wrap(async (req, res) => 
   ok(res, { id: +req.params.id });
 }));
 
+// GET /produits/categories-prix — référentiel des catégories de prix
+produitsRouter.get('/categories-prix', wrap(async (_req, res) => {
+  const { rows } = await db.query('SELECT * FROM categories_prix WHERE actif=TRUE ORDER BY ordre,libelle');
+  ok(res, rows);
+}));
+
+// PUT /produits/:id/prix — remplace toutes les catégories de prix + paliers d'un produit
+produitsRouter.put('/:id/prix', requirePerm('produits'), wrap(async (req, res) => {
+  const produit_id = +req.params.id;
+  const categories: any[] = req.body.categories ?? [];
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Supprimer les anciens prix (CASCADE supprime aussi les paliers)
+    await client.query('DELETE FROM produits_prix WHERE produit_id=$1', [produit_id]);
+    for (const cat of categories) {
+      if (!cat.categorie_prix_id || cat.prix == null) continue;
+      const { rows: [pp] } = await client.query(
+        `INSERT INTO produits_prix (produit_id,categorie_prix_id,prix) VALUES ($1,$2,$3) RETURNING id`,
+        [produit_id, cat.categorie_prix_id, cat.prix]
+      );
+      for (const pl of (cat.paliers ?? [])) {
+        if (!pl.qte_min || pl.prix == null) continue;
+        await client.query(
+          `INSERT INTO prix_paliers (produit_prix_id,qte_min,qte_max,prix) VALUES ($1,$2,$3,$4)`,
+          [pp.id, pl.qte_min, pl.qte_max ?? null, pl.prix]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    const { rows } = await db.query(
+      `SELECT pp.*,cp.code,cp.libelle,cp.ordre,
+         (SELECT COALESCE(JSON_AGG(pl ORDER BY pl.qte_min),'[]'::json) FROM prix_paliers pl WHERE pl.produit_prix_id=pp.id) AS paliers
+       FROM produits_prix pp JOIN categories_prix cp ON cp.id=pp.categorie_prix_id
+       WHERE pp.produit_id=$1 AND pp.actif=TRUE ORDER BY cp.ordre`,
+      [produit_id]
+    );
+    ok(res, rows);
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+}));
+
 // ─── CLIENTS ─────────────────────────────────────────────────
 export const clientsRouter = Router();
 clientsRouter.get('/', wrap(async (req, res) => {
   const { type, statut, search } = req.query as Record<string, string>;
-  let q = `SELECT c.*,COALESCE(SUM(v.total_ttc),0) ca_total,COALESCE(SUM(v.solde_restant),0) encours_creance,MAX(v.date_vente) derniere_vente FROM clients c LEFT JOIN ventes v ON v.client_id=c.id WHERE 1=1`;
+  let q = `SELECT c.*,COALESCE(SUM(v.total_ttc),0) ca_total,COALESCE(SUM(v.solde_restant),0)+c.solde_initial encours_creance,MAX(v.date_vente) derniere_vente FROM clients c LEFT JOIN ventes v ON v.client_id=c.id WHERE 1=1`;
   const p: unknown[] = [];
   if (type)   { p.push(type);          q += ` AND c.type_client=$${p.length}`; }
   if (statut) { p.push(statut);        q += ` AND c.statut=$${p.length}`; }
@@ -118,18 +168,78 @@ clientsRouter.get('/:id', wrap(async (req, res) => {
   if (!cli.rows.length) return fail(res, 'Client non trouvé', 404);
   ok(res, { ...cli.rows[0], historique_ventes: ventes.rows, creances: creances.rows });
 }));
+// Grand livre client : relevé de compte chronologique sur une période
+// (solde précédent + ventes en « Payé » + versements en « Reçu » + solde courant)
+clientsRouter.get('/:id/grand-livre', wrap(async (req, res) => {
+  const clientId = +req.params.id;
+  const now = new Date();
+  const debut = (req.query.debut as string) || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const fin   = (req.query.fin   as string) || now.toISOString().slice(0, 10);
+
+  const { rows: [cli] } = await db.query(
+    `SELECT id, code, raison_sociale, telephone, ville, solde_initial FROM clients WHERE id=$1`, [clientId]);
+  if (!cli) return fail(res, 'Client non trouvé', 404);
+
+  // Cumuls avant la période → solde précédent (négatif = le client doit)
+  const { rows: [av] } = await db.query(`
+    SELECT
+      COALESCE((SELECT SUM(total_ttc) FROM ventes WHERE client_id=$1 AND date_vente < $2),0) ventes_avant,
+      COALESCE((SELECT SUM(p.montant) FROM paiements p LEFT JOIN ventes v ON v.id=p.vente_id
+                WHERE p.type_paiement='encaissement' AND COALESCE(p.client_id,v.client_id)=$1
+                  AND p.date_paiement < $2),0) recu_avant
+  `, [clientId, debut]);
+  const soldePrecedent = -Number(cli.solde_initial) - Number(av.ventes_avant) + Number(av.recu_avant);
+
+  // Mouvements de la période : ventes (Payé) + encaissements (Reçu)
+  const { rows: mv } = await db.query(`
+    SELECT date, texte, recu, paye FROM (
+      SELECT v.date_vente AS date, 0 AS ord, v.id AS ref,
+             COALESCE((SELECT string_agg(pr.designation || CASE WHEN vl.quantite>1 THEN ' x'||vl.quantite ELSE '' END, ', ')
+                       FROM ventes_lignes vl JOIN produits pr ON pr.id=vl.produit_id WHERE vl.vente_id=v.id),
+                      'Vente '||v.numero) AS texte,
+             0::numeric AS recu, v.total_ttc AS paye
+      FROM ventes v WHERE v.client_id=$1 AND v.date_vente BETWEEN $2 AND $3
+      UNION ALL
+      SELECT p.date_paiement AS date, 1 AS ord, p.id AS ref,
+             COALESCE(NULLIF(p.notes,''), 'Versement') AS texte,
+             p.montant AS recu, 0::numeric AS paye
+      FROM paiements p LEFT JOIN ventes v ON v.id=p.vente_id
+      WHERE p.type_paiement='encaissement' AND COALESCE(p.client_id,v.client_id)=$1
+        AND p.date_paiement BETWEEN $2 AND $3
+    ) t ORDER BY date, ord, ref
+  `, [clientId, debut, fin]);
+
+  let solde = soldePrecedent;
+  const lignes = mv.map(r => {
+    solde += Number(r.recu) - Number(r.paye);
+    return { date: r.date, texte: r.texte, recu: Number(r.recu), paye: Number(r.paye), solde };
+  });
+  const total_recu = lignes.reduce((s, l) => s + l.recu, 0);
+  const total_paye = lignes.reduce((s, l) => s + l.paye, 0);
+
+  ok(res, {
+    client: { code: cli.code, raison_sociale: cli.raison_sociale, telephone: cli.telephone, ville: cli.ville },
+    periode: { debut, fin },
+    solde_precedent: soldePrecedent,
+    lignes,
+    total_recu,
+    total_paye,
+    solde_periode: total_recu - total_paye,
+    solde_final: solde,
+  });
+}));
 clientsRouter.post('/', requirePerm('clients'), wrap(async (req, res) => {
-  const { code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement } = req.body;
+  const { code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,solde_initial } = req.body;
   const { rows } = await db.query(
-    `INSERT INTO clients (code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-    [code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0]);
+    `INSERT INTO clients (code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,solde_initial) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0,solde_initial??0]);
   ok(res, rows[0]);
 }));
 clientsRouter.put('/:id', requirePerm('clients'), wrap(async (req, res) => {
-  const { type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,statut } = req.body;
+  const { type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,statut,solde_initial } = req.body;
   const { rows } = await db.query(
-    `UPDATE clients SET type_client=$1,raison_sociale=$2,contact_nom=$3,telephone=$4,email=$5,adresse=$6,ville=$7,plafond_credit=$8,delai_paiement=$9,statut=$10 WHERE id=$11 RETURNING *`,
-    [type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0,statut??'actif',req.params.id]);
+    `UPDATE clients SET type_client=$1,raison_sociale=$2,contact_nom=$3,telephone=$4,email=$5,adresse=$6,ville=$7,plafond_credit=$8,delai_paiement=$9,statut=$10,solde_initial=$11 WHERE id=$12 RETURNING *`,
+    [type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit??0,delai_paiement??0,statut??'actif',solde_initial??0,req.params.id]);
   if (!rows.length) return fail(res, 'Client non trouvé', 404);
   ok(res, rows[0]);
 }));
@@ -145,11 +255,11 @@ creancesRouter.get('/', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
   let q = `SELECT * FROM v_creances_clients WHERE 1=1`;
   const p: unknown[] = [];
-  if (magasin_id) { p.push(magasin_id); q += ` AND magasin_id=$${p.length}`; }
+  if (magasin_id) { p.push(magasin_id); q += ` AND (magasin_id=$${p.length} OR magasin_id IS NULL)`; }
   if (categorie)  { p.push(categorie);  q += ` AND categorie_echeance=$${p.length}`; }
   if (client_id)  { p.push(+client_id); q += ` AND client_id=$${p.length}`; }
   q += ' ORDER BY jours_retard DESC NULLS LAST';
-  const mf = magasin_id ? `WHERE magasin_id=${magasin_id}` : '';
+  const mf = magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [{ rows }, { rows: [ag] }] = await Promise.all([
     db.query(q, p),
     db.query(`SELECT COALESCE(SUM(solde_restant),0) total,COALESCE(SUM(CASE WHEN categorie_echeance='non_echu' THEN solde_restant END),0) non_echu,COALESCE(SUM(CASE WHEN categorie_echeance='echu_30j' THEN solde_restant END),0) echu_30j,COALESCE(SUM(CASE WHEN categorie_echeance='echu_60j' THEN solde_restant END),0) echu_60j,COALESCE(SUM(CASE WHEN categorie_echeance='contentieux' THEN solde_restant END),0) contentieux FROM v_creances_clients ${mf}`),
@@ -161,7 +271,7 @@ creancesRouter.get('/', wrap(async (req, res) => {
 export const dettesRouter = Router();
 dettesRouter.get('/', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
-  const mf = magasin_id ? `WHERE magasin_id=${magasin_id}` : '';
+  const mf = magasin_id ? `WHERE (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [{ rows }, { rows: [total] }] = await Promise.all([
     db.query(`SELECT * FROM v_dettes_fournisseurs ${mf} ORDER BY jours_retard DESC NULLS LAST,date_echeance`),
     db.query(`SELECT COALESCE(SUM(solde_restant),0) total,COALESCE(SUM(CASE WHEN date_echeance<=CURRENT_DATE THEN solde_restant END),0) echu,COALESCE(SUM(CASE WHEN date_echeance BETWEEN CURRENT_DATE+1 AND CURRENT_DATE+15 THEN solde_restant END),0) urgent FROM v_dettes_fournisseurs ${mf}`),
@@ -239,21 +349,79 @@ paiementsRouter.post('/', requirePerm('paiements'), wrap(async (req, res) => {
 // ─── FOURNISSEURS ─────────────────────────────────────────────
 export const fournisseursRouter = Router();
 fournisseursRouter.get('/', wrap(async (_, res) => {
-  const { rows } = await db.query(`SELECT f.*,COALESCE(SUM(a.total_ttc),0) total_achats,COALESCE(SUM(a.solde_restant),0) encours_dette FROM fournisseurs f LEFT JOIN achats a ON a.fournisseur_id=f.id WHERE f.actif=TRUE GROUP BY f.id ORDER BY f.raison_sociale`);
+  const { rows } = await db.query(`SELECT f.*,COALESCE(SUM(a.total_ttc),0) total_achats,COALESCE(SUM(a.solde_restant),0)+f.solde_initial encours_dette FROM fournisseurs f LEFT JOIN achats a ON a.fournisseur_id=f.id WHERE f.actif=TRUE GROUP BY f.id ORDER BY f.raison_sociale`);
   ok(res, rows);
 }));
+// Grand livre fournisseur : relevé de compte chronologique sur une période
+// (solde précédent + achats en « Payé » + règlements en « Reçu » + solde courant)
+fournisseursRouter.get('/:id/grand-livre', wrap(async (req, res) => {
+  const fournId = +req.params.id;
+  const now = new Date();
+  const debut = (req.query.debut as string) || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const fin   = (req.query.fin   as string) || now.toISOString().slice(0, 10);
+
+  const { rows: [f] } = await db.query(
+    `SELECT id, code, raison_sociale, telephone, pays, solde_initial FROM fournisseurs WHERE id=$1`, [fournId]);
+  if (!f) return fail(res, 'Fournisseur non trouvé', 404);
+
+  const { rows: [av] } = await db.query(`
+    SELECT
+      COALESCE((SELECT SUM(total_ttc) FROM achats WHERE fournisseur_id=$1 AND date_achat < $2),0) achats_avant,
+      COALESCE((SELECT SUM(p.montant) FROM paiements p LEFT JOIN achats a ON a.id=p.achat_id
+                WHERE p.type_paiement='decaissement' AND COALESCE(p.fournisseur_id,a.fournisseur_id)=$1
+                  AND p.date_paiement < $2),0) regle_avant
+  `, [fournId, debut]);
+  const soldePrecedent = -Number(f.solde_initial) - Number(av.achats_avant) + Number(av.regle_avant);
+
+  const { rows: mv } = await db.query(`
+    SELECT date, texte, recu, paye FROM (
+      SELECT a.date_achat AS date, 0 AS ord, a.id AS ref,
+             COALESCE((SELECT string_agg(pr.designation || CASE WHEN al.quantite>1 THEN ' x'||al.quantite ELSE '' END, ', ')
+                       FROM achats_lignes al JOIN produits pr ON pr.id=al.produit_id WHERE al.achat_id=a.id),
+                      'Achat '||a.numero) AS texte,
+             0::numeric AS recu, a.total_ttc AS paye
+      FROM achats a WHERE a.fournisseur_id=$1 AND a.date_achat BETWEEN $2 AND $3
+      UNION ALL
+      SELECT p.date_paiement AS date, 1 AS ord, p.id AS ref,
+             COALESCE(NULLIF(p.notes,''), 'Règlement') AS texte,
+             p.montant AS recu, 0::numeric AS paye
+      FROM paiements p LEFT JOIN achats a ON a.id=p.achat_id
+      WHERE p.type_paiement='decaissement' AND COALESCE(p.fournisseur_id,a.fournisseur_id)=$1
+        AND p.date_paiement BETWEEN $2 AND $3
+    ) t ORDER BY date, ord, ref
+  `, [fournId, debut, fin]);
+
+  let solde = soldePrecedent;
+  const lignes = mv.map(r => {
+    solde += Number(r.recu) - Number(r.paye);
+    return { date: r.date, texte: r.texte, recu: Number(r.recu), paye: Number(r.paye), solde };
+  });
+  const total_recu = lignes.reduce((s, l) => s + l.recu, 0);
+  const total_paye = lignes.reduce((s, l) => s + l.paye, 0);
+
+  ok(res, {
+    client: { code: f.code, raison_sociale: f.raison_sociale, telephone: f.telephone, ville: f.pays },
+    periode: { debut, fin },
+    solde_precedent: soldePrecedent,
+    lignes,
+    total_recu,
+    total_paye,
+    solde_periode: total_recu - total_paye,
+    solde_final: solde,
+  });
+}));
 fournisseursRouter.post('/', requirePerm('clients'), wrap(async (req, res) => {
-  const { code, raison_sociale, contact_nom, telephone, email, adresse, pays = "Côte d'Ivoire", delai_paiement = 30, conditions } = req.body;
+  const { code, raison_sociale, contact_nom, telephone, email, adresse, pays = "Côte d'Ivoire", delai_paiement = 30, conditions, solde_initial } = req.body;
   const { rows } = await db.query(
-    `INSERT INTO fournisseurs (code,raison_sociale,contact_nom,telephone,email,adresse,pays,delai_paiement,conditions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [code, raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null]);
+    `INSERT INTO fournisseurs (code,raison_sociale,contact_nom,telephone,email,adresse,pays,delai_paiement,conditions,solde_initial) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [code, raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null, solde_initial ?? 0]);
   ok(res, rows[0]);
 }));
 fournisseursRouter.put('/:id', requirePerm('clients'), wrap(async (req, res) => {
-  const { raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions } = req.body;
+  const { raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions, solde_initial } = req.body;
   const { rows } = await db.query(
-    `UPDATE fournisseurs SET raison_sociale=$1,contact_nom=$2,telephone=$3,email=$4,adresse=$5,pays=$6,delai_paiement=$7,conditions=$8 WHERE id=$9 RETURNING *`,
-    [raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null, req.params.id]);
+    `UPDATE fournisseurs SET raison_sociale=$1,contact_nom=$2,telephone=$3,email=$4,adresse=$5,pays=$6,delai_paiement=$7,conditions=$8,solde_initial=$9 WHERE id=$10 RETURNING *`,
+    [raison_sociale, contact_nom, telephone, email, adresse, pays, delai_paiement, conditions || null, solde_initial ?? 0, req.params.id]);
   if (!rows.length) return fail(res, 'Fournisseur non trouvé', 404);
   ok(res, rows[0]);
 }));
@@ -347,7 +515,7 @@ rapportsRouter.get('/performance', wrap(async (req, res) => {
 rapportsRouter.get('/clients', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
   const mf = magasin_id ? `AND v.magasin_id=${magasin_id}` : '';
-  const mfVc = magasin_id ? `AND magasin_id=${magasin_id}` : '';
+  const mfVc = magasin_id ? `AND (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [clients, ageing, debiteurs] = await Promise.all([
     db.query(`
       SELECT c.id, c.raison_sociale,
@@ -379,7 +547,7 @@ rapportsRouter.get('/clients', wrap(async (req, res) => {
 rapportsRouter.get('/fournisseurs', wrap(async (req, res) => {
   const magasin_id = scopeMagasin(req);
   const mf = magasin_id ? `AND a.magasin_id=${magasin_id}` : '';
-  const mfVd = magasin_id ? `AND magasin_id=${magasin_id}` : '';
+  const mfVd = magasin_id ? `AND (magasin_id=${magasin_id} OR magasin_id IS NULL)` : '';
   const [fournisseurs, dettes_urgentes] = await Promise.all([
     db.query(`
       SELECT f.id, f.raison_sociale,
@@ -484,17 +652,31 @@ rapportsRouter.get('/comparaison', wrap(async (req, res) => {
   
   const [mois_courant, mois_precedent, meme_mois_ln, tendance] = await Promise.all([
     db.query(`
-      SELECT COALESCE(SUM(total_ttc),0) ca, 
-        ROUND(COALESCE(SUM(total_ttc-(SELECT COALESCE(SUM(vl2.quantite*p2.prix_achat),0) FROM ventes_lignes vl2 JOIN produits p2 ON p2.id=vl2.produit_id WHERE vl2.vente_id=v.id))/NULLIF(SUM(total_ttc),0)*100,0),1) marge,
+      SELECT COALESCE(SUM(v.total_ttc),0) ca,
+        ROUND(COALESCE(
+          (SUM(v.total_ttc) - (
+            SELECT COALESCE(SUM(vl.quantite*p.prix_achat),0)
+            FROM ventes_lignes vl
+            JOIN produits p  ON p.id=vl.produit_id
+            JOIN ventes v2   ON v2.id=vl.vente_id
+            WHERE EXTRACT(YEAR FROM v2.date_vente)=$1 AND EXTRACT(MONTH FROM v2.date_vente)=$2
+          )) / NULLIF(SUM(v.total_ttc),0) * 100, 0), 1) marge,
         COUNT(*) nb_ventes
       FROM ventes v
-      WHERE EXTRACT(YEAR FROM date_vente)=$1 AND EXTRACT(MONTH FROM date_vente)=$2
+      WHERE EXTRACT(YEAR FROM v.date_vente)=$1 AND EXTRACT(MONTH FROM v.date_vente)=$2
     `, [annee, mois]),
     db.query(`
-      SELECT COALESCE(SUM(total_ttc),0) ca, COUNT(*) nb_ventes,
-        ROUND(COALESCE(SUM(total_ttc-(SELECT COALESCE(SUM(vl2.quantite*p2.prix_achat),0) FROM ventes_lignes vl2 JOIN produits p2 ON p2.id=vl2.produit_id WHERE vl2.vente_id=v.id))/NULLIF(SUM(total_ttc),0)*100,0),1) marge
+      SELECT COALESCE(SUM(v.total_ttc),0) ca, COUNT(*) nb_ventes,
+        ROUND(COALESCE(
+          (SUM(v.total_ttc) - (
+            SELECT COALESCE(SUM(vl.quantite*p.prix_achat),0)
+            FROM ventes_lignes vl
+            JOIN produits p  ON p.id=vl.produit_id
+            JOIN ventes v2   ON v2.id=vl.vente_id
+            WHERE EXTRACT(YEAR FROM v2.date_vente)=$1 AND EXTRACT(MONTH FROM v2.date_vente)=$2
+          )) / NULLIF(SUM(v.total_ttc),0) * 100, 0), 1) marge
       FROM ventes v
-      WHERE EXTRACT(YEAR FROM date_vente)=$1 AND EXTRACT(MONTH FROM date_vente)=$2
+      WHERE EXTRACT(YEAR FROM v.date_vente)=$1 AND EXTRACT(MONTH FROM v.date_vente)=$2
     `, [annee_prec, mois_prec]),
     db.query(`
       SELECT COALESCE(SUM(total_ttc),0) ca FROM ventes
@@ -579,7 +761,7 @@ rapportsRouter.get('/previsions', wrap(async (req, res) => {
         SUM(total_ttc) ca_moyen,
         ROUND(SUM(total_ttc)/(SELECT AVG(ca) FROM (SELECT SUM(total_ttc) ca FROM ventes v2 GROUP BY DATE_TRUNC('month',v2.date_vente)) sub)*100) coefficient
       FROM ventes GROUP BY to_char(date_trunc('month',date_vente),'Mon')
-      ORDER BY EXTRACT(MONTH FROM date_trunc('month',date_vente))
+      ORDER BY MIN(EXTRACT(MONTH FROM date_vente))
     `),
     db.query(`
       SELECT 
@@ -668,13 +850,47 @@ notifRouter.get('/logs', wrap(async (_, res) => {
 export const adminRouter = Router();
 adminRouter.use(requireRole('admin'));
 adminRouter.get('/roles', wrap(async (_, res) => {
-  const { rows } = await db.query(`SELECT id, code, libelle nom FROM roles ORDER BY id`);
+  const { rows } = await db.query(
+    `SELECT r.id, r.code, r.libelle nom, r.libelle, r.permissions, r.systeme,
+            (SELECT COUNT(*) FROM utilisateurs u WHERE u.role_id=r.id AND u.actif=TRUE)::int nb_users
+     FROM roles r ORDER BY r.systeme DESC, r.id`);
   ok(res, rows);
+}));
+adminRouter.post('/roles', wrap(async (req, res) => {
+  const { code, libelle, permissions } = req.body as { code: string; libelle: string; permissions?: object };
+  if (!code || !libelle) return fail(res, 'code et libelle requis');
+  const slug = String(code).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const { rows } = await db.query(
+    `INSERT INTO roles (code, libelle, permissions, systeme) VALUES ($1,$2,$3,FALSE) RETURNING *`,
+    [slug, libelle, JSON.stringify(permissions ?? {})]);
+  ok(res, rows[0], 201);
+}));
+adminRouter.put('/roles/:id', wrap(async (req, res) => {
+  const { libelle, permissions } = req.body as { libelle?: string; permissions?: object };
+  const updates: string[] = [];
+  const p: unknown[] = [];
+  if (libelle !== undefined)     { p.push(libelle);                    updates.push(`libelle=$${p.length}`); }
+  if (permissions !== undefined) { p.push(JSON.stringify(permissions)); updates.push(`permissions=$${p.length}`); }
+  if (!updates.length) return fail(res, 'Rien à mettre à jour');
+  p.push(req.params.id);
+  const { rows } = await db.query(`UPDATE roles SET ${updates.join(',')} WHERE id=$${p.length} RETURNING *`, p);
+  if (!rows.length) return fail(res, 'Rôle introuvable', 404);
+  ok(res, rows[0]);
+}));
+adminRouter.delete('/roles/:id', wrap(async (req, res) => {
+  const { rows } = await db.query(`SELECT systeme FROM roles WHERE id=$1`, [req.params.id]);
+  if (!rows.length) return fail(res, 'Rôle introuvable', 404);
+  if (rows[0].systeme) return fail(res, 'Rôle système : suppression interdite', 403);
+  const { rows: used } = await db.query(`SELECT 1 FROM utilisateurs WHERE role_id=$1 LIMIT 1`, [req.params.id]);
+  if (used.length) return fail(res, 'Rôle utilisé par des utilisateurs : réaffectez-les d\'abord', 409);
+  await db.query(`DELETE FROM roles WHERE id=$1`, [req.params.id]);
+  ok(res, { id: +req.params.id });
 }));
 adminRouter.get('/utilisateurs', wrap(async (_, res) => {
   const { rows } = await db.query(
     `SELECT u.id,u.code,u.nom,u.prenom,u.email,u.telephone,u.actif,u.derniere_cnx,
-            r.id role_id,r.code role,r.libelle role_nom,
+            u.permissions_override,
+            r.id role_id,r.code role,r.libelle role_nom,r.permissions role_permissions,
             COALESCE(vm.magasin_ids,'{}') magasin_ids,
             COALESCE(vm.magasin_noms,'{}') magasin_noms
      FROM utilisateurs u
@@ -685,14 +901,15 @@ adminRouter.get('/utilisateurs', wrap(async (_, res) => {
 }));
 adminRouter.post('/utilisateurs', wrap(async (req, res) => {
   const bcrypt = await import('bcrypt');
-  const { code,nom,prenom,email,telephone,password,role_id,magasin_ids } = req.body;
+  const { code,nom,prenom,email,telephone,password,role_id,magasin_ids,permissions_override } = req.body;
   const hash = await bcrypt.hash(password, 12);
+  const ov = permissions_override && Object.keys(permissions_override).length ? JSON.stringify(permissions_override) : null;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO utilisateurs (code,nom,prenom,email,telephone,password_hash,role_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [code,nom,prenom,email,telephone,hash,role_id]);
+      `INSERT INTO utilisateurs (code,nom,prenom,email,telephone,password_hash,role_id,permissions_override) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [code,nom,prenom,email,telephone,hash,role_id,ov]);
     const uid = rows[0].id;
     const ids: number[] = Array.isArray(magasin_ids) ? magasin_ids.filter(Boolean) : [];
     if (ids.length) {
@@ -707,13 +924,17 @@ adminRouter.post('/utilisateurs', wrap(async (req, res) => {
 }));
 adminRouter.put('/utilisateurs/:id', wrap(async (req, res) => {
   const bcrypt = await import('bcrypt');
-  const { nom,prenom,email,telephone,role_id,actif,password,magasin_ids } = req.body;
+  const { nom,prenom,email,telephone,role_id,actif,password,magasin_ids,permissions_override } = req.body;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     let q = `UPDATE utilisateurs SET nom=$1,prenom=$2,email=$3,telephone=$4,role_id=$5,actif=$6`;
     const p: unknown[] = [nom,prenom,email,telephone,role_id,actif??true];
     if (password) { p.push(await bcrypt.hash(password, 12)); q += `,password_hash=$${p.length}`; }
+    if (permissions_override !== undefined) {
+      const ov = permissions_override && Object.keys(permissions_override).length ? JSON.stringify(permissions_override) : null;
+      p.push(ov); q += `,permissions_override=$${p.length}`;
+    }
     p.push(req.params.id); q += ` WHERE id=$${p.length}`;
     await client.query(q, p);
     // Remplacer toutes les associations magasins

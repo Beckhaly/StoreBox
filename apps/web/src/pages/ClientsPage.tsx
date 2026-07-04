@@ -8,11 +8,12 @@ import { Client, Vente } from '@storebox/shared';
 import { fcfa, fdate } from '../lib/formatters';
 import { api } from '../lib/api';
 import { exportCsv, CSV_CLIENTS } from '../lib/csv';
+import { GrandLivreModal } from '../components/GrandLivreModal';
 
 const VIDE = {
   code: '', type_client: 'grossiste', raison_sociale: '', contact_nom: '',
   telephone: '', email: '', adresse: '', ville: 'Abidjan',
-  plafond_credit: '', delai_paiement: '0',
+  plafond_credit: '', delai_paiement: '0', solde_initial: '0',
 };
 
 export default function ClientsPage() {
@@ -31,6 +32,9 @@ export default function ClientsPage() {
   const [editForm,   setEditForm]   = useState({ ...VIDE, statut: 'actif' });
   const [editSaving, setEditSaving] = useState(false);
 
+  // Grand livre
+  const [grandLivre, setGrandLivre] = useState<{ id: number; nom: string } | null>(null);
+
   // Expand
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [expandData, setExpandData] = useState<Record<number, Vente[]>>({});
@@ -46,6 +50,7 @@ export default function ClientsPage() {
       ...form,
       plafond_credit: Number(form.plafond_credit) || 0,
       delai_paiement: Number(form.delai_paiement) || 0,
+      solde_initial:  Number(form.solde_initial)  || 0,
     });
     setSaving(false);
     if (res.success) {
@@ -71,6 +76,7 @@ export default function ClientsPage() {
       ville:          c.ville        ?? 'Abidjan',
       plafond_credit: String(c.plafond_credit ?? 0),
       delai_paiement: String(c.delai_paiement ?? 0),
+      solde_initial:  String(c.solde_initial  ?? 0),
       statut:         c.statut,
     });
   };
@@ -83,6 +89,7 @@ export default function ClientsPage() {
       ...editForm,
       plafond_credit: Number(editForm.plafond_credit) || 0,
       delai_paiement: Number(editForm.delai_paiement) || 0,
+      solde_initial:  Number(editForm.solde_initial)  || 0,
     });
     setEditSaving(false);
     if (res.success) {
@@ -180,6 +187,10 @@ export default function ClientsPage() {
                       <td className="px-4 py-2.5"><Badge statut={c.statut} /></td>
                       <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
+                          <button onClick={() => setGrandLivre({ id: c.id, nom: c.raison_sociale })}
+                            className="btn text-[10px] px-2 py-1 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
+                            Grand livre
+                          </button>
                           <button onClick={() => openEdit(c)}
                             className="btn text-[10px] px-2 py-1 bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100">
                             Modifier
@@ -249,9 +260,6 @@ export default function ClientsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Nouveau client" size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           <FormGrid>
-            <FormRow label="Code" required>
-              <input className="input text-sm" value={form.code} onChange={e => set('code', e.target.value)} required placeholder="CLI-001" />
-            </FormRow>
             <FormRow label="Type de client" required>
               <select className="input text-sm" value={form.type_client} onChange={e => set('type_client', e.target.value)}>
                 <option value="grossiste">Grossiste</option>
@@ -290,6 +298,9 @@ export default function ClientsPage() {
               <input className="input text-sm font-mono" type="number" min="0" value={form.delai_paiement} onChange={e => set('delai_paiement', e.target.value)} placeholder="0" />
             </FormRow>
           </FormGrid>
+          <FormRow label="Solde initial (FCFA)">
+            <input className="input text-sm font-mono" type="number" min="0" value={form.solde_initial} onChange={e => set('solde_initial', e.target.value)} placeholder="0" />
+          </FormRow>
           <FormFooter onCancel={() => setOpen(false)} loading={saving} submitLabel="Créer le client" />
         </form>
       </Modal>
@@ -342,10 +353,17 @@ export default function ClientsPage() {
                 <input className="input text-sm font-mono" type="number" min="0" value={editForm.delai_paiement} onChange={e => setEdit('delai_paiement', e.target.value)} />
               </FormRow>
             </FormGrid>
+            <FormRow label="Solde initial (FCFA)">
+              <input className="input text-sm font-mono" type="number" min="0" value={editForm.solde_initial} onChange={e => setEdit('solde_initial', e.target.value)} />
+            </FormRow>
             <FormFooter onCancel={() => setEditClient(null)} loading={editSaving} submitLabel="Enregistrer les modifications" />
           </form>
         )}
       </Modal>
+
+      {grandLivre && (
+        <GrandLivreModal clientId={grandLivre.id} clientNom={grandLivre.nom} onClose={() => setGrandLivre(null)} />
+      )}
     </>
   );
 }

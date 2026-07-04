@@ -10,10 +10,10 @@ import { api } from '../lib/api';
 import { exportCsv, CSV_VENTES } from '../lib/csv';
 
 interface Referentiels { moyens_paiement: {id:number;nom:string}[]; }
-interface Ligne { produit_id: number; designation: string; prix_unitaire: number; quantite: number; remise_pct: number; }
+interface Ligne { produit_id: number; designation: string; prix_unitaire: number; quantite: number; remise_pct: number; categorie_prix_id: number | null; }
 interface VenteDetail { lignes: (VenteLigne & { designation: string; reference: string })[]; paiements: { id: number; montant: number; date_paiement: string; moyen_paiement: string; reference?: string }[]; }
 
-const ligneVide = (): Ligne => ({ produit_id: 0, designation: '', prix_unitaire: 0, quantite: 1, remise_pct: 0 });
+const ligneVide = (): Ligne => ({ produit_id: 0, designation: '', prix_unitaire: 0, quantite: 1, remise_pct: 0, categorie_prix_id: null });
 
 export default function VentesPage() {
   const [typeVente, setTypeVente] = useState('');
@@ -74,16 +74,41 @@ export default function VentesPage() {
     return { brut, sousTotal, tvaMontant, totalTtc, solde };
   }, [lignes, remisePct, tvaPct, paiementImmed]);
 
-  const setLigne = (i: number, k: keyof Ligne, v: string | number) =>
-    setLignes(ls => ls.map((l, idx) => idx === i ? { ...l, [k]: v } : l));
+  const resoudrePrix = (p: Produit, catId: number | null, qte: number, tv: 'gros' | 'detail'): number => {
+    if (catId != null) {
+      const pp = (p.categories_prix ?? []).find(cp => cp.categorie_prix_id === catId);
+      if (pp) {
+        const palier = (pp.paliers ?? [])
+          .filter(pl => qte >= Number(pl.qte_min) && (pl.qte_max == null || qte <= Number(pl.qte_max)))
+          .sort((a, b) => Number(b.qte_min) - Number(a.qte_min))[0];
+        return palier ? Number(palier.prix) : Number(pp.prix);
+      }
+    }
+    return tv === 'gros' ? p.prix_gros : p.prix_detail;
+  };
+
+  const setLigne = (i: number, k: keyof Ligne, v: string | number | null) => {
+    setLignes(ls => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      if (k === 'quantite' || k === 'categorie_prix_id') {
+        const p = (produits ?? []).find(pr => pr.id === l.produit_id);
+        const newQte = k === 'quantite' ? Number(v) : l.quantite;
+        const newCat = k === 'categorie_prix_id' ? (v as number | null) : l.categorie_prix_id;
+        const prix = p ? resoudrePrix(p, newCat, newQte, typeV) : l.prix_unitaire;
+        return { ...l, [k]: k === 'quantite' ? Number(v) : v, prix_unitaire: prix };
+      }
+      return { ...l, [k]: v };
+    }));
+  };
 
   const choisirProduit = (i: number, produitId: number) => {
     const p = (produits ?? []).find(p => p.id === produitId);
     if (!p) return;
-    const prix = typeV === 'gros' ? p.prix_gros : p.prix_detail;
-    setLignes(ls => ls.map((l, idx) => idx === i
-      ? { ...l, produit_id: p.id, designation: p.designation, prix_unitaire: prix }
-      : l
+    const l = lignes[i];
+    const prix = resoudrePrix(p, l?.categorie_prix_id ?? null, l?.quantite ?? 1, typeV);
+    setLignes(ls => ls.map((ln, idx) => idx === i
+      ? { ...ln, produit_id: p.id, designation: p.designation, prix_unitaire: prix }
+      : ln
     ));
   };
 
@@ -386,7 +411,7 @@ export default function VentesPage() {
               <table className="w-full text-xs">
                 <thead className="bg-[#F8F7F4]">
                   <tr>
-                    {['Produit','Qté','Prix unit.','Remise %','Total',''].map(h => (
+                    {['Produit','Catégorie prix','Qté','Prix unit.','Remise %','Total',''].map(h => (
                       <th key={h} className="text-left font-mono text-[10px] text-[#A8A49E] px-3 py-2">{h}</th>
                     ))}
                   </tr>
@@ -404,6 +429,23 @@ export default function VentesPage() {
                               <option key={p.id} value={p.id}>{p.designation} ({p.stock} u.)</option>
                             ))}
                           </select>
+                        </td>
+                        <td className="px-3 py-2 min-w-[120px]">
+                          {(() => {
+                            const prod = l.produit_id ? (produits ?? []).find(p => p.id === l.produit_id) : null;
+                            const cats = prod?.categories_prix ?? [];
+                            if (!cats.length) return <span className="text-[10px] text-[#A8A49E]">Standard</span>;
+                            return (
+                              <select className="input text-xs py-1"
+                                value={l.categorie_prix_id ?? ''}
+                                onChange={e => setLigne(i, 'categorie_prix_id', e.target.value ? Number(e.target.value) : null)}>
+                                <option value="">— Standard —</option>
+                                {cats.map(cp => (
+                                  <option key={cp.categorie_prix_id} value={cp.categorie_prix_id}>{cp.libelle}</option>
+                                ))}
+                              </select>
+                            );
+                          })()}
                         </td>
                         <td className="px-3 py-2 w-20">
                           <input className="input text-xs py-1 font-mono text-center" type="number" min="1"

@@ -28,17 +28,77 @@ export interface Utilisateur {
 
 export type RoleCode = 'admin' | 'commercial' | 'caissier' | 'comptable' | 'magasinier';
 
+// Niveau d'accès à un module : true = écriture, 'read' = lecture seule, absent/false = aucun
+export type PermissionLevel = boolean | 'read';
+
+// Clés de modules gérables dans la matrice de droits
+export type PermissionModule =
+  | 'dashboard' | 'ventes' | 'caisse' | 'clients' | 'produits' | 'stock'
+  | 'creances' | 'dettes' | 'echeances' | 'paiements' | 'fournisseurs'
+  | 'achats' | 'depenses' | 'devis' | 'retours' | 'commandes'
+  | 'rapports' | 'referentiels' | 'magasins';
+
 export interface Permissions {
-  all?:       boolean;
-  ventes?:    boolean | 'read';
-  clients?:   boolean | 'read';
-  produits?:  boolean | 'read';
-  creances?:  boolean | 'read';
-  dettes?:    boolean | 'read';
-  rapports?:  boolean | 'read';
-  paiements?: boolean | 'read';
-  admin?:     boolean;
-  dashboard?: boolean | 'read';
+  all?: boolean;                       // super-admin : accès total
+  admin?: boolean;                     // gestion utilisateurs / rôles / société
+  dashboard?:    PermissionLevel;
+  ventes?:       PermissionLevel;
+  caisse?:       PermissionLevel;
+  clients?:      PermissionLevel;
+  produits?:     PermissionLevel;
+  stock?:        PermissionLevel;
+  creances?:     PermissionLevel;
+  dettes?:       PermissionLevel;
+  echeances?:    PermissionLevel;
+  paiements?:    PermissionLevel;
+  fournisseurs?: PermissionLevel;
+  achats?:       PermissionLevel;
+  depenses?:     PermissionLevel;
+  devis?:        PermissionLevel;
+  retours?:      PermissionLevel;
+  commandes?:    PermissionLevel;      // bons de commande
+  rapports?:     PermissionLevel;
+  referentiels?: PermissionLevel;
+  magasins?:     PermissionLevel;
+}
+
+// Catalogue des modules pour l'éditeur de droits (ordre + libellé + groupe)
+export const PERMISSION_MODULES: { key: PermissionModule; label: string; groupe: string }[] = [
+  { key: 'dashboard',    label: 'Tableau de bord',      groupe: 'Général' },
+  { key: 'ventes',       label: 'Ventes',               groupe: 'Commercial' },
+  { key: 'caisse',       label: 'Caisse',               groupe: 'Commercial' },
+  { key: 'clients',      label: 'Clients',              groupe: 'Commercial' },
+  { key: 'devis',        label: 'Devis',                groupe: 'Commercial' },
+  { key: 'retours',      label: 'Retours',              groupe: 'Commercial' },
+  { key: 'produits',     label: 'Produits',             groupe: 'Stock' },
+  { key: 'stock',        label: 'Stock & mouvements',   groupe: 'Stock' },
+  { key: 'fournisseurs', label: 'Fournisseurs',         groupe: 'Achats' },
+  { key: 'achats',       label: 'Achats',               groupe: 'Achats' },
+  { key: 'commandes',    label: 'Bons de commande',     groupe: 'Achats' },
+  { key: 'creances',     label: 'Créances',             groupe: 'Finance' },
+  { key: 'dettes',       label: 'Dettes',               groupe: 'Finance' },
+  { key: 'echeances',    label: 'Échéances',            groupe: 'Finance' },
+  { key: 'paiements',    label: 'Paiements',            groupe: 'Finance' },
+  { key: 'depenses',     label: 'Dépenses',             groupe: 'Finance' },
+  { key: 'rapports',     label: 'Rapports & stats',     groupe: 'Analyse' },
+  { key: 'referentiels', label: 'Tables de référence',  groupe: 'Administration' },
+  { key: 'magasins',     label: 'Magasins',             groupe: 'Administration' },
+];
+
+// Fusionne les droits d'un rôle avec les surcharges individuelles d'un utilisateur
+export function effectivePerms(role?: Permissions | null, override?: Permissions | null): Permissions {
+  if (role?.all) return { all: true };
+  return { ...(role ?? {}), ...(override ?? {}) };
+}
+
+// Teste si un ensemble de droits autorise un module à un niveau donné
+export function hasPerm(perms: Permissions | null | undefined, mod: PermissionModule | 'admin', level: 'read' | 'write' = 'read'): boolean {
+  if (!perms) return false;
+  if (perms.all) return true;
+  const v = (perms as Record<string, PermissionLevel | undefined>)[mod];
+  if (v === true) return true;            // écriture ⇒ couvre lecture
+  if (v === 'read') return level === 'read';
+  return false;
 }
 
 export interface LoginPayload  { email: string; password: string; }
@@ -50,6 +110,35 @@ export interface LoginResponse {
 }
 
 // ─── PRODUITS ────────────────────────────────────────────────
+// ─── CATÉGORIES DE PRIX & PALIERS ────────────────────────────
+export interface CategoriePrix {
+  id:      number;
+  code:    string;
+  libelle: string;
+  ordre:   number;
+  actif:   boolean;
+}
+
+export interface PrixPalier {
+  id?:              number;
+  produit_prix_id?: number;
+  qte_min:          number;
+  qte_max?:         number | null;
+  prix:             number;
+}
+
+export interface ProduitPrix {
+  id?:               number;
+  produit_id?:       number;
+  categorie_prix_id: number;
+  code?:             string;
+  libelle?:          string;
+  ordre?:            number;
+  prix:              number;
+  actif?:            boolean;
+  paliers:           PrixPalier[];
+}
+
 export interface Produit {
   id:           number;
   reference:    string;
@@ -73,7 +162,8 @@ export interface Produit {
   prix_modifiable?: boolean;  // prix saisi à la caisse (pesée)
   gere_peremption?: boolean;
   gere_lot?:        boolean;
-  facteur_gros?:    number;   // unités de base par conditionnement gros
+  facteur_gros?:      number;
+  categories_prix?:   ProduitPrix[];
 }
 
 // ─── Unité de mesure (référentiel) ────────────────────────────
@@ -176,6 +266,7 @@ export interface Client {
   ville?:           string;
   plafond_credit:   number;
   delai_paiement:   number;
+  solde_initial:    number;
   statut:           StatutClient;
   note_risque:      number;
   ca_total?:        number;
@@ -193,6 +284,7 @@ export interface Fournisseur {
   email?:          string;
   pays?:           string;
   delai_paiement:  number;
+  solde_initial:   number;
   total_achats?:   number;
   encours_dette?:  number;
 }
@@ -384,12 +476,17 @@ export interface UtilisateurAdmin {
   derniere_cnx?: string;
   magasin_ids:   number[];
   magasin_noms?: string[];
+  permissions_override?: Permissions | null;
 }
 
 export interface Role {
-  id:    number;
-  code:  RoleCode;
-  nom:   string;
+  id:           number;
+  code:         string;
+  nom:          string;
+  libelle?:     string;
+  permissions?: Permissions;
+  systeme?:     boolean;
+  nb_users?:    number;
 }
 
 // ─── DEVIS ───────────────────────────────────────────────────
@@ -544,6 +641,10 @@ export interface AllReferentiels {
   statuts_avoir:              Referentiel[];
   statuts_reception:          Referentiel[];
   types_paiement:             Referentiel[];
+  categories:                 Referentiel[];
+  marques:                    Referentiel[];
+  categories_prix:            Referentiel[];
+  categories_depenses:        Referentiel[];
 }
 
 // ─── PARAMÈTRES SOCIÉTÉ ─────────────────────────────────

@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { ApiResponse } from '@storebox/shared';
+import type { ApiResponse } from '@storebox/shared';
 
 export const ok = <T>(res: Response, data: T, status = 200) =>
   res.status(status).json({ success: true, data } satisfies ApiResponse<T>);

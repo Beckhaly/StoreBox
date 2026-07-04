@@ -7,10 +7,11 @@ import { useApi } from '../hooks/useApi';
 import { Fournisseur, Achat } from '@storebox/shared';
 import { fcfa, fdate } from '../lib/formatters';
 import { api } from '../lib/api';
+import { GrandLivreModal } from '../components/GrandLivreModal';
 
 const VIDE = {
   code: '', raison_sociale: '', contact_nom: '', telephone: '',
-  email: '', adresse: '', pays: "Côte d'Ivoire", delai_paiement: '30', conditions: '',
+  email: '', adresse: '', pays: "Côte d'Ivoire", delai_paiement: '30', conditions: '', solde_initial: '0',
 };
 
 export default function FournisseursPage() {
@@ -27,6 +28,8 @@ export default function FournisseursPage() {
   const [editSaving,setEditSaving]= useState(false);
 
   // Expand
+  const [grandLivre, setGrandLivre] = useState<{ id: number; nom: string } | null>(null);
+
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [expandData, setExpandData] = useState<Record<number, Achat[]>>({});
   const [expandLoad, setExpandLoad] = useState<Record<number, boolean>>({});
@@ -40,6 +43,7 @@ export default function FournisseursPage() {
     const res = await api.post('/fournisseurs', {
       ...form,
       delai_paiement: Number(form.delai_paiement) || 30,
+      solde_initial:  Number(form.solde_initial)  || 0,
     });
     setSaving(false);
     if (res.success) {
@@ -64,6 +68,7 @@ export default function FournisseursPage() {
       pays:           f.pays           ?? "Côte d'Ivoire",
       delai_paiement: String(f.delai_paiement ?? 30),
       conditions:     '',
+      solde_initial:  String(f.solde_initial  ?? 0),
     });
   };
 
@@ -74,6 +79,7 @@ export default function FournisseursPage() {
     const res = await api.put(`/fournisseurs/${editFrs.id}`, {
       ...editForm,
       delai_paiement: Number(editForm.delai_paiement) || 30,
+      solde_initial:  Number(editForm.solde_initial)  || 0,
     });
     setEditSaving(false);
     if (res.success) {
@@ -104,14 +110,9 @@ export default function FournisseursPage() {
 
   const FormFields = ({ f, s }: { f: typeof VIDE; s: (k: string, v: string) => void }) => (
     <>
-      <FormGrid>
-        <FormRow label="Code" required>
-          <input className="input text-sm font-mono" value={f.code} onChange={e => s('code', e.target.value)} required placeholder="FRS-009" />
-        </FormRow>
-        <FormRow label="Délai paiement (jours)">
-          <input className="input text-sm font-mono" type="number" min="0" value={f.delai_paiement} onChange={e => s('delai_paiement', e.target.value)} />
-        </FormRow>
-      </FormGrid>
+      <FormRow label="Délai paiement (jours)">
+        <input className="input text-sm font-mono" type="number" min="0" value={f.delai_paiement} onChange={e => s('delai_paiement', e.target.value)} />
+      </FormRow>
       <FormRow label="Raison sociale" required>
         <input className="input text-sm" value={f.raison_sociale} onChange={e => s('raison_sociale', e.target.value)} required placeholder="Nom du fournisseur" />
       </FormRow>
@@ -136,6 +137,9 @@ export default function FournisseursPage() {
       </FormRow>
       <FormRow label="Conditions commerciales">
         <textarea className="input text-sm resize-none" rows={2} value={f.conditions} onChange={e => s('conditions', e.target.value)} placeholder="Ex: 30% à la commande, solde à 30j..." />
+      </FormRow>
+      <FormRow label="Solde initial (FCFA)">
+        <input className="input text-sm font-mono" type="number" min="0" value={f.solde_initial} onChange={e => s('solde_initial', e.target.value)} placeholder="0" />
       </FormRow>
     </>
   );
@@ -181,6 +185,10 @@ export default function FournisseursPage() {
                       <td className="px-4 py-2.5 font-mono text-[#6B6862]">{f.telephone ?? '—'}</td>
                       <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
+                          <button onClick={() => setGrandLivre({ id: f.id, nom: f.raison_sociale })}
+                            className="btn text-[10px] px-2 py-1 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
+                            Grand livre
+                          </button>
                           <button onClick={() => openEdit(f)}
                             className="btn text-[10px] px-2 py-1 bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100">
                             Modifier
@@ -263,6 +271,10 @@ export default function FournisseursPage() {
           </form>
         )}
       </Modal>
+
+      {grandLivre && (
+        <GrandLivreModal base="fournisseurs" clientId={grandLivre.id} clientNom={grandLivre.nom} onClose={() => setGrandLivre(null)} />
+      )}
     </>
   );
 }
