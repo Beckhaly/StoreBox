@@ -352,6 +352,64 @@ fournisseursRouter.get('/', wrap(async (_, res) => {
   const { rows } = await db.query(`SELECT f.*,COALESCE(SUM(a.total_ttc),0) total_achats,COALESCE(SUM(a.solde_restant),0)+f.solde_initial encours_dette FROM fournisseurs f LEFT JOIN achats a ON a.fournisseur_id=f.id WHERE f.actif=TRUE GROUP BY f.id ORDER BY f.raison_sociale`);
   ok(res, rows);
 }));
+// Grand livre fournisseur : relevé de compte chronologique sur une période
+// (solde précédent + achats en « Payé » + règlements en « Reçu » + solde courant)
+fournisseursRouter.get('/:id/grand-livre', wrap(async (req, res) => {
+  const fournId = +req.params.id;
+  const now = new Date();
+  const debut = (req.query.debut as string) || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const fin   = (req.query.fin   as string) || now.toISOString().slice(0, 10);
+
+  const { rows: [f] } = await db.query(
+    `SELECT id, code, raison_sociale, telephone, pays, solde_initial FROM fournisseurs WHERE id=$1`, [fournId]);
+  if (!f) return fail(res, 'Fournisseur non trouvé', 404);
+
+  const { rows: [av] } = await db.query(`
+    SELECT
+      COALESCE((SELECT SUM(total_ttc) FROM achats WHERE fournisseur_id=$1 AND date_achat < $2),0) achats_avant,
+      COALESCE((SELECT SUM(p.montant) FROM paiements p LEFT JOIN achats a ON a.id=p.achat_id
+                WHERE p.type_paiement='decaissement' AND COALESCE(p.fournisseur_id,a.fournisseur_id)=$1
+                  AND p.date_paiement < $2),0) regle_avant
+  `, [fournId, debut]);
+  const soldePrecedent = -Number(f.solde_initial) - Number(av.achats_avant) + Number(av.regle_avant);
+
+  const { rows: mv } = await db.query(`
+    SELECT date, texte, recu, paye FROM (
+      SELECT a.date_achat AS date, 0 AS ord, a.id AS ref,
+             COALESCE((SELECT string_agg(pr.designation || CASE WHEN al.quantite>1 THEN ' x'||al.quantite ELSE '' END, ', ')
+                       FROM achats_lignes al JOIN produits pr ON pr.id=al.produit_id WHERE al.achat_id=a.id),
+                      'Achat '||a.numero) AS texte,
+             0::numeric AS recu, a.total_ttc AS paye
+      FROM achats a WHERE a.fournisseur_id=$1 AND a.date_achat BETWEEN $2 AND $3
+      UNION ALL
+      SELECT p.date_paiement AS date, 1 AS ord, p.id AS ref,
+             COALESCE(NULLIF(p.notes,''), 'Règlement') AS texte,
+             p.montant AS recu, 0::numeric AS paye
+      FROM paiements p LEFT JOIN achats a ON a.id=p.achat_id
+      WHERE p.type_paiement='decaissement' AND COALESCE(p.fournisseur_id,a.fournisseur_id)=$1
+        AND p.date_paiement BETWEEN $2 AND $3
+    ) t ORDER BY date, ord, ref
+  `, [fournId, debut, fin]);
+
+  let solde = soldePrecedent;
+  const lignes = mv.map(r => {
+    solde += Number(r.recu) - Number(r.paye);
+    return { date: r.date, texte: r.texte, recu: Number(r.recu), paye: Number(r.paye), solde };
+  });
+  const total_recu = lignes.reduce((s, l) => s + l.recu, 0);
+  const total_paye = lignes.reduce((s, l) => s + l.paye, 0);
+
+  ok(res, {
+    client: { code: f.code, raison_sociale: f.raison_sociale, telephone: f.telephone, ville: f.pays },
+    periode: { debut, fin },
+    solde_precedent: soldePrecedent,
+    lignes,
+    total_recu,
+    total_paye,
+    solde_periode: total_recu - total_paye,
+    solde_final: solde,
+  });
+}));
 fournisseursRouter.post('/', requirePerm('clients'), wrap(async (req, res) => {
   const { code, raison_sociale, contact_nom, telephone, email, adresse, pays = "Côte d'Ivoire", delai_paiement = 30, conditions, solde_initial } = req.body;
   const { rows } = await db.query(

@@ -24,8 +24,8 @@ const moisCourant = () => {
   };
 };
 
-export function GrandLivreModal({ clientId, clientNom, onClose }: {
-  clientId: number; clientNom: string; onClose: () => void;
+export function GrandLivreModal({ clientId, clientNom, base = 'clients', onClose }: {
+  clientId: number; clientNom: string; base?: 'clients' | 'fournisseurs'; onClose: () => void;
 }) {
   const [{ debut, fin }, setPeriode] = useState(moisCourant());
   const [data, setData]     = useState<GrandLivre | null>(null);
@@ -33,10 +33,10 @@ export function GrandLivreModal({ clientId, clientNom, onClose }: {
 
   const charger = useCallback(async () => {
     setLoading(true);
-    const res = await api.get<GrandLivre>(`/clients/${clientId}/grand-livre?debut=${debut}&fin=${fin}`);
+    const res = await api.get<GrandLivre>(`/${base}/${clientId}/grand-livre?debut=${debut}&fin=${fin}`);
     setLoading(false);
     if (res.success && res.data) setData(res.data);
-  }, [clientId, debut, fin]);
+  }, [base, clientId, debut, fin]);
 
   useEffect(() => { charger(); }, [charger]);
 

@@ -7,6 +7,7 @@ import { useApi } from '../hooks/useApi';
 import { Fournisseur, Achat } from '@storebox/shared';
 import { fcfa, fdate } from '../lib/formatters';
 import { api } from '../lib/api';
+import { GrandLivreModal } from '../components/GrandLivreModal';
 
 const VIDE = {
   code: '', raison_sociale: '', contact_nom: '', telephone: '',
@@ -27,6 +28,8 @@ export default function FournisseursPage() {
   const [editSaving,setEditSaving]= useState(false);
 
   // Expand
+  const [grandLivre, setGrandLivre] = useState<{ id: number; nom: string } | null>(null);
+
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [expandData, setExpandData] = useState<Record<number, Achat[]>>({});
   const [expandLoad, setExpandLoad] = useState<Record<number, boolean>>({});
@@ -182,6 +185,10 @@ export default function FournisseursPage() {
                       <td className="px-4 py-2.5 font-mono text-[#6B6862]">{f.telephone ?? '—'}</td>
                       <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
+                          <button onClick={() => setGrandLivre({ id: f.id, nom: f.raison_sociale })}
+                            className="btn text-[10px] px-2 py-1 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
+                            Grand livre
+                          </button>
                           <button onClick={() => openEdit(f)}
                             className="btn text-[10px] px-2 py-1 bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100">
                             Modifier
@@ -264,6 +271,10 @@ export default function FournisseursPage() {
           </form>
         )}
       </Modal>
+
+      {grandLivre && (
+        <GrandLivreModal base="fournisseurs" clientId={grandLivre.id} clientNom={grandLivre.nom} onClose={() => setGrandLivre(null)} />
+      )}
     </>
   );
 }
