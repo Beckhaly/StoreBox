@@ -8,6 +8,7 @@ import { Client, Vente } from '@storebox/shared';
 import { fcfa, fdate } from '../lib/formatters';
 import { api } from '../lib/api';
 import { exportCsv, CSV_CLIENTS } from '../lib/csv';
+import { GrandLivreModal } from '../components/GrandLivreModal';
 
 const VIDE = {
   code: '', type_client: 'grossiste', raison_sociale: '', contact_nom: '',
@@ -30,6 +31,9 @@ export default function ClientsPage() {
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [editForm,   setEditForm]   = useState({ ...VIDE, statut: 'actif' });
   const [editSaving, setEditSaving] = useState(false);
+
+  // Grand livre
+  const [grandLivre, setGrandLivre] = useState<{ id: number; nom: string } | null>(null);
 
   // Expand
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -183,6 +187,10 @@ export default function ClientsPage() {
                       <td className="px-4 py-2.5"><Badge statut={c.statut} /></td>
                       <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
+                          <button onClick={() => setGrandLivre({ id: c.id, nom: c.raison_sociale })}
+                            className="btn text-[10px] px-2 py-1 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
+                            Grand livre
+                          </button>
                           <button onClick={() => openEdit(c)}
                             className="btn text-[10px] px-2 py-1 bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100">
                             Modifier
@@ -352,6 +360,10 @@ export default function ClientsPage() {
           </form>
         )}
       </Modal>
+
+      {grandLivre && (
+        <GrandLivreModal clientId={grandLivre.id} clientNom={grandLivre.nom} onClose={() => setGrandLivre(null)} />
+      )}
     </>
   );
 }

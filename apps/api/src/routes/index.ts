@@ -168,6 +168,66 @@ clientsRouter.get('/:id', wrap(async (req, res) => {
   if (!cli.rows.length) return fail(res, 'Client non trouvé', 404);
   ok(res, { ...cli.rows[0], historique_ventes: ventes.rows, creances: creances.rows });
 }));
+// Grand livre client : relevé de compte chronologique sur une période
+// (solde précédent + ventes en « Payé » + versements en « Reçu » + solde courant)
+clientsRouter.get('/:id/grand-livre', wrap(async (req, res) => {
+  const clientId = +req.params.id;
+  const now = new Date();
+  const debut = (req.query.debut as string) || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const fin   = (req.query.fin   as string) || now.toISOString().slice(0, 10);
+
+  const { rows: [cli] } = await db.query(
+    `SELECT id, code, raison_sociale, telephone, ville, solde_initial FROM clients WHERE id=$1`, [clientId]);
+  if (!cli) return fail(res, 'Client non trouvé', 404);
+
+  // Cumuls avant la période → solde précédent (négatif = le client doit)
+  const { rows: [av] } = await db.query(`
+    SELECT
+      COALESCE((SELECT SUM(total_ttc) FROM ventes WHERE client_id=$1 AND date_vente < $2),0) ventes_avant,
+      COALESCE((SELECT SUM(p.montant) FROM paiements p LEFT JOIN ventes v ON v.id=p.vente_id
+                WHERE p.type_paiement='encaissement' AND COALESCE(p.client_id,v.client_id)=$1
+                  AND p.date_paiement < $2),0) recu_avant
+  `, [clientId, debut]);
+  const soldePrecedent = -Number(cli.solde_initial) - Number(av.ventes_avant) + Number(av.recu_avant);
+
+  // Mouvements de la période : ventes (Payé) + encaissements (Reçu)
+  const { rows: mv } = await db.query(`
+    SELECT date, texte, recu, paye FROM (
+      SELECT v.date_vente AS date, 0 AS ord, v.id AS ref,
+             COALESCE((SELECT string_agg(pr.designation || CASE WHEN vl.quantite>1 THEN ' x'||vl.quantite ELSE '' END, ', ')
+                       FROM ventes_lignes vl JOIN produits pr ON pr.id=vl.produit_id WHERE vl.vente_id=v.id),
+                      'Vente '||v.numero) AS texte,
+             0::numeric AS recu, v.total_ttc AS paye
+      FROM ventes v WHERE v.client_id=$1 AND v.date_vente BETWEEN $2 AND $3
+      UNION ALL
+      SELECT p.date_paiement AS date, 1 AS ord, p.id AS ref,
+             COALESCE(NULLIF(p.notes,''), 'Versement') AS texte,
+             p.montant AS recu, 0::numeric AS paye
+      FROM paiements p LEFT JOIN ventes v ON v.id=p.vente_id
+      WHERE p.type_paiement='encaissement' AND COALESCE(p.client_id,v.client_id)=$1
+        AND p.date_paiement BETWEEN $2 AND $3
+    ) t ORDER BY date, ord, ref
+  `, [clientId, debut, fin]);
+
+  let solde = soldePrecedent;
+  const lignes = mv.map(r => {
+    solde += Number(r.recu) - Number(r.paye);
+    return { date: r.date, texte: r.texte, recu: Number(r.recu), paye: Number(r.paye), solde };
+  });
+  const total_recu = lignes.reduce((s, l) => s + l.recu, 0);
+  const total_paye = lignes.reduce((s, l) => s + l.paye, 0);
+
+  ok(res, {
+    client: { code: cli.code, raison_sociale: cli.raison_sociale, telephone: cli.telephone, ville: cli.ville },
+    periode: { debut, fin },
+    solde_precedent: soldePrecedent,
+    lignes,
+    total_recu,
+    total_paye,
+    solde_periode: total_recu - total_paye,
+    solde_final: solde,
+  });
+}));
 clientsRouter.post('/', requirePerm('clients'), wrap(async (req, res) => {
   const { code,type_client,raison_sociale,contact_nom,telephone,email,adresse,ville,plafond_credit,delai_paiement,solde_initial } = req.body;
   const { rows } = await db.query(
